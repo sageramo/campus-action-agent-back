@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: verbal-action-chain-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m campus_agent.server
+    envVars:
+      - key: HOST
+        value: 0.0.0.0

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>自研算法演示台 · 口述行动链</title>
+    <link rel="stylesheet" href="./agent.css" />
+    <link rel="stylesheet" href="./algorithm.css" />
+  </head>
+  <body>
+    <main class="algorithm-shell">
+      <header class="algorithm-hero glass">
+        <a class="back-link" href="./">返回智能体前端</a>
+        <p>SELF-BUILT ENGINE</p>
+        <h1>自研规则解析与冲突检测演示台</h1>
+        <span>
+          这里展示的是项目中不依赖 Dify 的技术部分：文本清洗、规则抽取、时间语义识别、容量估算和劝退建议。
+        </span>
+      </header>
+
+      <section class="tech-grid">
+        <article class="tech-card glass">
+          <span>01</span>
+          <h2>文本清洗</h2>
+          <p>修复群通知复制导致的中文编码错位，统一空格、换行、日期符号，为后续抽取做预处理。</p>
+        </article>
+        <article class="tech-card glass">
+          <span>02</span>
+          <h2>规则解析</h2>
+          <p>使用正则表达式抽取日期、时间段、地点、部门、材料和联系方式，降低大模型幻觉。</p>
+        </article>
+        <article class="tech-card glass">
+          <span>03</span>
+          <h2>时间语义分类</h2>
+          <p>根据上下文判断同一个通知中的时间含义：报名截止、材料提交、抽签签到、活动比赛、考试入场。</p>
+        </article>
+        <article class="tech-card glass">
+          <span>04</span>
+          <h2>冲突检测</h2>
+          <p>检测固定时间重叠、截止前容量不足、期末复习压力和前置材料风险。</p>
+        </article>
+      </section>
+
+      <section class="demo-grid">
+        <article class="demo-panel glass">
+          <h2>多时间点解析案例</h2>
+          <p class="source-text">
+            请于2026年5月25日15:00前完成报名。现场抽签时间为2026年5月27日中午12:30，地点为体育部105会议室。比赛时间为2026年5月30日8点至18点。
+          </p>
+          <div class="timeline">
+            <div><strong>报名截止</strong><span>2026-05-25 15:00 前</span></div>
+            <div><strong>抽签/签到</strong><span>2026-05-27 12:30，体育部105会议室</span></div>
+            <div><strong>比赛时间</strong><span>2026-05-30 08:00-18:00</span></div>
+          </div>
+          <p class="note">算法重点：不把抽签时间误判为报名截止，不把比赛时间误判为材料提交。</p>
+        </article>
+
+        <article class="demo-panel glass">
+          <h2>冲突检测案例</h2>
+          <p class="source-text">
+            6月29日开始期末考试，前两周复习高数、概率论、马原、英语、物理、离散数学；6月18日前处理大广赛，6月18日晚有学生工作例会。
+          </p>
+          <div class="estimate">
+            <div><strong>默认复习量</strong><span>约63小时</span></div>
+            <div><strong>竞赛与会议</strong><span>约21.5小时</span></div>
+            <div><strong>两周可用时间</strong><span>约72小时</span></div>
+            <div class="danger"><strong>缺口</strong><span>约12.5小时</span></div>
+          </div>
+          <p class="note">输出建议：保留考试复习，压缩大广赛非核心环节，学生工作例会建议委托或请假。</p>
+        </article>
+      </section>
+
+      <section class="code-panel glass">
+        <h2>核心规则示例</h2>
+        <pre><code>if "6月29日开始期末考试":
+    review_window = "2026-06-15 至 2026-06-28"
+    weekday_capacity = 4 小时/天
+    weekend_capacity = 8 小时/天
+
+if context contains ["报名", "截止", "前"]:
+    time_type = "报名截止"
+elif context contains ["提交", "材料"]:
+    time_type = "材料提交"
+elif context contains ["抽签", "签到", "入场"]:
+    time_type = "抽签/签到时间"</code></pre>
+      </section>
+    </main>
+  </body>
+</html>

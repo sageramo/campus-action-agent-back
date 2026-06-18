@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>口述行动链 · 校园行动规划智能体</title>
+    <link rel="stylesheet" href="./agent.css" />
+  </head>
+  <body>
+    <main class="app-shell sidebar-collapsed" id="appShell">
+      <aside class="sidebar" aria-label="项目说明">
+        <button class="sidebar-toggle" type="button" id="sidebarToggle" aria-label="toggle sidebar" aria-expanded="false">
+          <span class="toggle-icon" aria-hidden="true"></span>
+        </button>
+
+        <header class="brand">
+          <a class="brand-title" href="./">口述行动链</a>
+          <p>把通知、活动想法和时间安排整理成可执行的行动方案。</p>
+        </header>
+
+        <section class="intro">
+          <p class="eyebrow">校园行动规划智能体</p>
+          <h1>口述行动链</h1>
+          <p>
+            面向校园办事、活动策划、多时间点通知和任务冲突判断，帮助用户快速看清要做什么、什么时候做、哪些事项需要取舍。
+          </p>
+        </section>
+
+        <section class="capabilities" aria-label="核心能力">
+          <h2>核心能力</h2>
+          <div class="capability">
+            <span class="cap-icon">01</span>
+            <div>
+              <strong>通知解析</strong>
+              <p>识别报名截止、材料提交、活动时间、地点和所需材料。</p>
+            </div>
+          </div>
+          <div class="capability">
+            <span class="cap-icon">02</span>
+            <div>
+              <strong>活动策划</strong>
+              <p>生成分工、预算、物资、审批和当天执行流程。</p>
+            </div>
+          </div>
+          <div class="capability">
+            <span class="cap-icon">03</span>
+            <div>
+              <strong>冲突检测</strong>
+              <p>判断任务是否排得开，并给出调整、委托或放弃建议。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="examples" aria-label="示例问题">
+          <div class="section-heading">
+            <h2>示例</h2>
+            <span id="copyStatus">点击后复制</span>
+          </div>
+          <button data-prompt="请于2026年5月25日15:00前完成报名。现场抽签时间为2026年5月27日中午12:30，地点为体育部105会议室。比赛时间为2026年5月30日8点至18点。帮我整理行动清单。">通知解析</button>
+          <button data-prompt="我想策划一次班级篮球交流赛，预计30人参加，预算500元，需要场地、分工、物资和当天流程。">活动策划</button>
+          <button data-prompt="2026年第18届大广赛提交平台5月20日开放，6月12日16:00截止，学校线下提交时间为6月12日至14日每天9:00-17:00，6月18日24:00前可以退赛。请帮我区分这些时间。">多时间点通知</button>
+          <button data-prompt="我6月29日开始期末考试，前两周要复习高数、概率论、马原、英语、物理、离散数学。同时6月18日前还要处理大广赛，6月18日晚上还有学生工作例会。帮我判断是否排得开。">冲突检测</button>
+        </section>
+
+        <footer class="sidebar-footer">
+          <a href="./algorithm.html" target="_blank" rel="noreferrer">自研算法演示台</a>
+          <a href="https://udify.app/chat/719EqByTRKYYG25i" target="_blank" rel="noreferrer">打开 Dify 智能体</a>
+          <small>第 7 组 · Dify 工作流 + 规则解析</small>
+        </footer>
+      </aside>
+
+      <section class="chat-panel" aria-label="智能体对话">
+        <header class="chat-header">
+          <div>
+            <h2>口述行动链</h2>
+            <p>选择左侧示例并粘贴到输入框，或直接输入你的校园任务。</p>
+          </div>
+          <button class="ghost-button" type="button" id="resetHint">新对话</button>
+        </header>
+
+        <section class="agent-preview" aria-label="智能体演示">
+          <div class="preview-copy">
+            <p class="eyebrow">SELF-BUILT API</p>
+            <h3>前端已接入自研后端</h3>
+            <p>
+              这里调用的是项目里的 Python API，不依赖 Dify。它负责规则解析、时间语义识别和冲突检测，Dify 负责对话编排与知识库问答。
+            </p>
+            <div class="preview-actions">
+              <button class="primary-action" type="button" id="runParseDemo">运行通知解析 API</button>
+              <button class="secondary-action" type="button" id="runConflictDemo">运行冲突检测 API</button>
+              <a class="secondary-action" href="https://udify.app/chat/719EqByTRKYYG25i" target="_blank" rel="noreferrer">打开 Dify</a>
+            </div>
+            <p class="api-note" id="apiStatus">API 地址：自动使用当前域名，失败时回退到 http://127.0.0.1:8765</p>
+          </div>
+
+          <div class="api-console" aria-label="API 演示输出">
+            <div class="console-top">
+              <span>API OUTPUT</span>
+              <button type="button" id="runHealthCheck">检查连接</button>
+            </div>
+            <pre id="apiOutput">点击左侧按钮，查看自研后端返回的结构化结果。</pre>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="./api-config.js"></script>
+    <script src="./agent.js"></script>
+  </body>
+</html>

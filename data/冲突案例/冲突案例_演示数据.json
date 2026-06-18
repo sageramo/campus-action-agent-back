@@ -1,0 +1,176 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-06-17",
+  "assumptions": {
+    "daily_available_hours_on_school_days": 4,
+    "daily_available_hours_on_weekends": 8,
+    "minimum_sleep_hours": 7,
+    "high_intensity_daily_limit_hours": 6,
+    "review_window_rule": "期末考试周前两周自动安排复习任务"
+  },
+  "cases": [
+    {
+      "case_id": "CF-001",
+      "title": "2025秋季期末复习周容量不足",
+      "data_type": "constructed_from_user_exam_info",
+      "scenario_period": {
+        "start": "2025-12-22",
+        "end": "2026-01-04"
+      },
+      "background": "2025年秋季学期期末考试周为2026年1月5日至2026年1月16日，前两周需要复习高等数学、线性代数、思想政治、大学英语、习近平新时代中国特色社会主义思想概论。",
+      "tasks": [
+        {"task_id": "T1", "name": "高等数学期末复习", "category": "学习", "deadline": "2026-01-05 08:00", "estimated_hours": 16, "priority": 95, "must_do": true, "fixed_time": null},
+        {"task_id": "T2", "name": "线性代数期末复习", "category": "学习", "deadline": "2026-01-07 08:00", "estimated_hours": 12, "priority": 90, "must_do": true, "fixed_time": null},
+        {"task_id": "T3", "name": "思想政治期末复习", "category": "学习", "deadline": "2026-01-09 08:00", "estimated_hours": 8, "priority": 82, "must_do": true, "fixed_time": null},
+        {"task_id": "T4", "name": "大学英语期末复习", "category": "学习", "deadline": "2026-01-12 08:00", "estimated_hours": 10, "priority": 85, "must_do": true, "fixed_time": null},
+        {"task_id": "T5", "name": "习近平新时代中国特色社会主义思想概论复习", "category": "学习", "deadline": "2026-01-14 08:00", "estimated_hours": 8, "priority": 82, "must_do": true, "fixed_time": null},
+        {"task_id": "T6", "name": "社团年度材料整理", "category": "学生工作", "deadline": "2025-12-29 22:00", "estimated_hours": 8, "priority": 55, "must_do": false, "fixed_time": null},
+        {"task_id": "T7", "name": "班级总结推文制作", "category": "学生工作", "deadline": "2026-01-02 22:00", "estimated_hours": 6, "priority": 45, "must_do": false, "fixed_time": null}
+      ],
+      "expected_conflicts": [
+        {"type": "exam_review_pressure", "description": "五门期末复习合计54小时，叠加学生工作14小时，总需求约68小时。若按两周内工作日4小时、周末8小时估算，理论可用约72小时，但高强度任务过于集中，且没有缓冲时间。"},
+        {"type": "capacity_shortage", "description": "高等数学和线性代数截止靠前，前7天需要完成约36小时高强度学习，同时还存在社团材料8小时，容易超过每日高强度上限。"}
+      ],
+      "expected_recommendation": {
+        "keep": ["高等数学期末复习", "线性代数期末复习", "思想政治期末复习", "大学英语期末复习", "习近平新时代中国特色社会主义思想概论复习"],
+        "adjust": ["社团年度材料整理：拆分给组员或压缩到2小时完成框架版"],
+        "drop_or_delegate": ["班级总结推文制作：建议转交给其他班委或延期到考试后"]
+      }
+    },
+    {
+      "case_id": "CF-002",
+      "title": "2026春季期末复习与大广赛退赛/收尾节点冲突",
+      "data_type": "mixed_real_and_constructed",
+      "scenario_period": {
+        "start": "2026-06-15",
+        "end": "2026-06-28"
+      },
+      "background": "2026年春季学期期末考试周为2026年6月29日至2026年7月10日，前两周需要复习高等数学、概率论与数理统计、马克思主义基本原理、大学英语、大学物理、离散数学。大广赛真实通知中存在6月18日24:00前退赛节点。",
+      "tasks": [
+        {"task_id": "T1", "name": "高等数学期末复习", "category": "学习", "deadline": "2026-06-29 08:00", "estimated_hours": 14, "priority": 95, "must_do": true, "fixed_time": null},
+        {"task_id": "T2", "name": "概率论与数理统计期末复习", "category": "学习", "deadline": "2026-07-01 08:00", "estimated_hours": 12, "priority": 92, "must_do": true, "fixed_time": null},
+        {"task_id": "T3", "name": "马克思主义基本原理复习", "category": "学习", "deadline": "2026-07-03 08:00", "estimated_hours": 9, "priority": 85, "must_do": true, "fixed_time": null},
+        {"task_id": "T4", "name": "大学英语期末复习", "category": "学习", "deadline": "2026-07-06 08:00", "estimated_hours": 9, "priority": 85, "must_do": true, "fixed_time": null},
+        {"task_id": "T5", "name": "大学物理期末复习", "category": "学习", "deadline": "2026-07-08 08:00", "estimated_hours": 14, "priority": 93, "must_do": true, "fixed_time": null},
+        {"task_id": "T6", "name": "离散数学期末复习", "category": "学习", "deadline": "2026-07-10 08:00", "estimated_hours": 12, "priority": 92, "must_do": true, "fixed_time": null},
+        {"task_id": "T7", "name": "大广赛退赛或作品状态确认", "category": "竞赛", "deadline": "2026-06-18 24:00", "estimated_hours": 1, "priority": 50, "must_do": false, "fixed_time": null},
+        {"task_id": "T8", "name": "期末前学生工作例会", "category": "学生工作", "deadline": null, "estimated_hours": 2, "priority": 40, "must_do": false, "fixed_time": {"start": "2026-06-18 19:00", "end": "2026-06-18 21:00"}}
+      ],
+      "expected_conflicts": [
+        {"type": "exam_review_pressure", "description": "六门考试复习合计70小时，已经接近两周可用学习容量上限。"},
+        {"type": "capacity_shortage", "description": "6月18日前既要开始高数和概率复习，又要处理大广赛状态确认和学生工作例会，短期可用时间被挤压。"}
+      ],
+      "expected_recommendation": {
+        "keep": ["六门期末复习任务"],
+        "adjust": ["大广赛退赛或作品状态确认：压缩为30分钟检查清单", "期末前学生工作例会：如非必要，申请线上同步或会后阅读纪要"],
+        "drop_or_delegate": ["非核心学生工作任务全部延后到7月10日之后"]
+      }
+    },
+    {
+      "case_id": "CF-003",
+      "title": "羽毛球公开赛抽签与课程时间冲突",
+      "data_type": "mixed_real_and_constructed",
+      "scenario_period": {
+        "start": "2026-05-25",
+        "end": "2026-05-30"
+      },
+      "background": "羽毛球公开赛真实通知包含5月25日15:00报名截止、5月27日12:30现场抽签、5月30日8:00-18:00比赛。课程时间为构造演示数据。",
+      "tasks": [
+        {"task_id": "T1", "name": "羽毛球公开赛报名确认", "category": "体育活动", "deadline": "2026-05-25 15:00", "estimated_hours": 1, "priority": 65, "must_do": true, "fixed_time": null},
+        {"task_id": "T2", "name": "羽毛球公开赛现场抽签", "category": "体育活动", "deadline": null, "estimated_hours": 1, "priority": 70, "must_do": true, "fixed_time": {"start": "2026-05-27 12:30", "end": "2026-05-27 13:10"}},
+        {"task_id": "T3", "name": "羽毛球公开赛比赛", "category": "体育活动", "deadline": null, "estimated_hours": 10, "priority": 70, "must_do": true, "fixed_time": {"start": "2026-05-30 08:00", "end": "2026-05-30 18:00"}},
+        {"task_id": "T4", "name": "周三中午课程/实验课", "category": "课程", "deadline": null, "estimated_hours": 2, "priority": 85, "must_do": true, "fixed_time": {"start": "2026-05-27 12:00", "end": "2026-05-27 13:30"}},
+        {"task_id": "T5", "name": "周六小组作业线下讨论", "category": "学习", "deadline": null, "estimated_hours": 2, "priority": 70, "must_do": false, "fixed_time": {"start": "2026-05-30 15:00", "end": "2026-05-30 17:00"}}
+      ],
+      "expected_conflicts": [
+        {"type": "hard_time_overlap", "description": "5月27日12:30-13:10抽签与12:00-13:30课程/实验课重叠。"},
+        {"type": "hard_time_overlap", "description": "5月30日15:00-17:00小组讨论与8:00-18:00比赛重叠。"}
+      ],
+      "expected_recommendation": {
+        "keep": ["周三中午课程/实验课", "羽毛球公开赛比赛"],
+        "adjust": ["抽签：委托队友代抽或提前向老师请假", "小组作业讨论：改为线上或移至5月30日晚"],
+        "drop_or_delegate": []
+      }
+    },
+    {
+      "case_id": "CF-004",
+      "title": "大广赛线下提交窗口与四六级考试准备冲突",
+      "data_type": "mixed_real_and_constructed",
+      "scenario_period": {
+        "start": "2026-06-10",
+        "end": "2026-06-14"
+      },
+      "background": "大广赛真实通知包含6月12日16:00平台截止、6月12日至14日每天9:00-17:00校内线下提交窗口。四六级材料中包含6月10日至12日听力试音，具体考试日期按演示构造为6月13日。",
+      "tasks": [
+        {"task_id": "T1", "name": "四六级听力试音", "category": "考试", "deadline": null, "estimated_hours": 1, "priority": 85, "must_do": true, "fixed_time": {"start": "2026-06-12 18:00", "end": "2026-06-12 19:00"}},
+        {"task_id": "T2", "name": "四六级考前复习", "category": "学习", "deadline": "2026-06-13 08:00", "estimated_hours": 6, "priority": 90, "must_do": true, "fixed_time": null},
+        {"task_id": "T3", "name": "四六级考试", "category": "考试", "deadline": null, "estimated_hours": 3, "priority": 95, "must_do": true, "fixed_time": {"start": "2026-06-13 08:10", "end": "2026-06-13 11:20"}},
+        {"task_id": "T4", "name": "大广赛线上平台提交", "category": "竞赛", "deadline": "2026-06-12 16:00", "estimated_hours": 3, "priority": 75, "must_do": true, "fixed_time": null},
+        {"task_id": "T5", "name": "大广赛校内线下提交", "category": "竞赛", "deadline": "2026-06-14 17:00", "estimated_hours": 2, "priority": 70, "must_do": true, "fixed_time": {"start": "2026-06-13 09:00", "end": "2026-06-13 17:00"}}
+      ],
+      "expected_conflicts": [
+        {"type": "hard_time_overlap", "description": "6月13日9:00-17:00线下提交窗口与8:10-11:20四六级考试重叠。"},
+        {"type": "capacity_shortage", "description": "6月12日16:00前既要完成大广赛线上提交，又要完成四六级考前复习，短期任务压力较高。"}
+      ],
+      "expected_recommendation": {
+        "keep": ["四六级考试", "大广赛线上平台提交"],
+        "adjust": ["大广赛校内线下提交：改到6月13日下午或6月14日办理", "四六级复习：在6月10日至12日提前分摊"],
+        "drop_or_delegate": ["如团队允许，线下提交可委托队友代办"]
+      }
+    },
+    {
+      "case_id": "CF-005",
+      "title": "转专业面试材料准备与面试日程压力",
+      "data_type": "mixed_real_and_constructed",
+      "scenario_period": {
+        "start": "2026-03-01",
+        "end": "2026-03-04"
+      },
+      "background": "转专业真实通知包含3月4日9:00-11:00面试、PPT汇报、现场问答和材料携带要求。课程/作业任务为构造演示数据。",
+      "tasks": [
+        {"task_id": "T1", "name": "转专业PPT准备", "category": "办事", "deadline": "2026-03-04 09:00", "estimated_hours": 5, "priority": 90, "must_do": true, "fixed_time": null},
+        {"task_id": "T2", "name": "打印成绩单和报名表", "category": "办事", "deadline": "2026-03-04 09:00", "estimated_hours": 2, "priority": 90, "must_do": true, "fixed_time": null},
+        {"task_id": "T3", "name": "转专业面试", "category": "办事", "deadline": null, "estimated_hours": 2, "priority": 95, "must_do": true, "fixed_time": {"start": "2026-03-04 09:00", "end": "2026-03-04 11:00"}},
+        {"task_id": "T4", "name": "程序设计作业提交", "category": "学习", "deadline": "2026-03-03 23:59", "estimated_hours": 4, "priority": 80, "must_do": true, "fixed_time": null},
+        {"task_id": "T5", "name": "学生会活动策划初稿", "category": "学生工作", "deadline": "2026-03-03 22:00", "estimated_hours": 3, "priority": 45, "must_do": false, "fixed_time": null}
+      ],
+      "expected_conflicts": [
+        {"type": "capacity_shortage", "description": "3月1日至3月3日晚需要完成PPT、打印材料、课程作业和策划初稿，合计约14小时，若每天可支配时间4小时则存在约2小时缺口。"},
+        {"type": "sequence_risk", "description": "成绩单、报名表等材料必须在面试前完成，不能放到3月4日上午处理。"}
+      ],
+      "expected_recommendation": {
+        "keep": ["转专业PPT准备", "打印成绩单和报名表", "转专业面试", "程序设计作业提交"],
+        "adjust": ["学生会活动策划初稿：只完成框架版或申请延期", "PPT准备：3月1日前完成大纲，3月2日完成内容，3月3日只做演练"],
+        "drop_or_delegate": ["学生会活动策划初稿可交由同组成员继续细化"]
+      }
+    },
+    {
+      "case_id": "CF-006",
+      "title": "新生入学周固定日程重叠风险",
+      "data_type": "mixed_real_and_constructed",
+      "scenario_period": {
+        "start": "2026-09-09",
+        "end": "2026-09-13"
+      },
+      "background": "新生入学真实通知包含9月9日体检、9月10日班会、9月11日学院集体照和开学典礼、9月13日学校开学典礼。银行卡办理和宿舍用品采购为构造演示数据。",
+      "tasks": [
+        {"task_id": "T1", "name": "体检抽血", "category": "入学安排", "deadline": null, "estimated_hours": 2, "priority": 95, "must_do": true, "fixed_time": {"start": "2026-09-09 06:30", "end": "2026-09-09 08:20"}},
+        {"task_id": "T2", "name": "下午体检", "category": "入学安排", "deadline": null, "estimated_hours": 3, "priority": 95, "must_do": true, "fixed_time": {"start": "2026-09-09 13:30", "end": "2026-09-09 16:00"}},
+        {"task_id": "T3", "name": "新生班会", "category": "入学安排", "deadline": null, "estimated_hours": 2, "priority": 90, "must_do": true, "fixed_time": {"start": "2026-09-10 14:30", "end": "2026-09-10 16:30"}},
+        {"task_id": "T4", "name": "学院集体照", "category": "入学安排", "deadline": null, "estimated_hours": 1, "priority": 85, "must_do": true, "fixed_time": {"start": "2026-09-11 10:00", "end": "2026-09-11 11:00"}},
+        {"task_id": "T5", "name": "学院开学典礼", "category": "入学安排", "deadline": null, "estimated_hours": 2, "priority": 90, "must_do": true, "fixed_time": {"start": "2026-09-11 14:00", "end": "2026-09-11 16:00"}},
+        {"task_id": "T6", "name": "银行卡集中办理", "category": "办事", "deadline": null, "estimated_hours": 2, "priority": 60, "must_do": false, "fixed_time": {"start": "2026-09-11 15:00", "end": "2026-09-11 17:00"}},
+        {"task_id": "T7", "name": "宿舍用品采购", "category": "生活", "deadline": "2026-09-13 22:00", "estimated_hours": 3, "priority": 40, "must_do": false, "fixed_time": null}
+      ],
+      "expected_conflicts": [
+        {"type": "hard_time_overlap", "description": "9月11日15:00-16:00银行卡集中办理与学院开学典礼重叠。"},
+        {"type": "sequence_risk", "description": "9月9日早上抽血要求空腹，应避免安排早餐或剧烈活动。"}
+      ],
+      "expected_recommendation": {
+        "keep": ["体检抽血", "下午体检", "新生班会", "学院集体照", "学院开学典礼"],
+        "adjust": ["银行卡集中办理：改到其他办理窗口或委托咨询补办时间", "宿舍用品采购：安排到9月12日或9月13日下午"],
+        "drop_or_delegate": []
+      }
+    }
+  ]
+}

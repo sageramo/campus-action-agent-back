@@ -48,8 +48,18 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         query = parse_qs(parsed.query)
+        if path in {"/", ""}:
+            return json_response(
+                self,
+                {
+                    "ok": True,
+                    "name": "Campus Action Agent API",
+                    "message": "Backend is running. Try /api/health, /api/summary, /api/parse or /api/conflicts.",
+                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts"],
+                },
+            )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "口述行动链 API", "version": "1.0"})
+            return json_response(self, {"ok": True, "name": "Campus Action Agent API", "version": "1.0"})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -80,7 +90,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
             text = str(payload.get("text", ""))
             if not text.strip():
                 return json_response(self, {"error": "text is required"}, 400)
-            task = parse_notice_text(text, source="用户输入")
+            task = parse_notice_text(text, source="user input")
             return json_response(self, task.to_dict())
         if parsed.path == "/api/conflicts":
             tasks = payload.get("tasks", [])
@@ -91,12 +101,9 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
         return json_response(self, {"error": "unknown endpoint"}, 404)
 
     def serve_static(self, path: str) -> None:
-        if path in {"/", ""}:
-            file_path = WEB_DIR / "index.html"
-        else:
-            file_path = (WEB_DIR / path.lstrip("/")).resolve()
-            if WEB_DIR.resolve() not in file_path.parents and file_path != WEB_DIR.resolve():
-                return json_response(self, {"error": "forbidden"}, 403)
+        file_path = (WEB_DIR / path.lstrip("/")).resolve()
+        if WEB_DIR.resolve() not in file_path.parents and file_path != WEB_DIR.resolve():
+            return json_response(self, {"error": "forbidden"}, 403)
         if not file_path.exists() or not file_path.is_file():
             return json_response(self, {"error": "not found"}, 404)
         content_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"

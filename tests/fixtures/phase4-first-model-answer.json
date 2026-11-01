@@ -1,0 +1,32 @@
+{
+  "provenance": "User supplied final JSON from the first real Dify trial on 2026-10-26. Reasoning prefix omitted from this fixture; the original combined extraction is known to fail strict JSON parsing.",
+  "payload": {
+    "text": "请于2026年10月28日15:00前提交课程报告。\n讲座于2026年10月28日18:00至20:00在主楼405举行。\n无需携带学生证。",
+    "reference_date": "2026-10-26",
+    "timezone": "Asia/Shanghai"
+  },
+  "answer": {
+    "schema_version": 1,
+    "candidates": [
+      {
+        "title": "提交课程报告",
+        "kind": "flexible",
+        "action_quote": "请于2026年10月28日15:00前提交课程报告。",
+        "time_quote": "2026年10月28日15:00前",
+        "location_quote": null,
+        "materials_quotes": ["课程报告"],
+        "uncertainties": []
+      },
+      {
+        "title": "参加讲座",
+        "kind": "fixed",
+        "action_quote": "讲座于2026年10月28日18:00至20:00在主楼405举行。",
+        "time_quote": "2026年10月28日18:00至20:00",
+        "location_quote": "主楼405",
+        "materials_quotes": [],
+        "uncertainties": ["原文仅说明讲座举行，未明确要求参加。"]
+      }
+    ],
+    "warnings": []
+  }
+}

@@ -10,10 +10,38 @@ from urllib.parse import parse_qs, urlparse
 from .conflict import detect_conflicts
 from .data_loader import DATA_DIR, dataset_summary, load_conflict_cases, load_multitime_samples, parse_sample_documents
 from .extractor import parse_notice_text
+from .dify_client import ExtractionServiceError, extract_notice, extraction_service_status
+from .extraction_access import EXTRACTION_BUDGET, local_extraction_allowed
+from .snapshot import calculate_snapshot
+from .planner import plan_snapshot
+from .time_utils import DATE_ONLY
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WEB_DIR = ROOT / "web" / "deploy"
+WEB_DIR = ROOT / "deploy"
+MAX_BODY_BYTES = 1_048_576
+MAX_SNAPSHOT_BODY_BYTES = 15_000_000
+
+
+def process_post(path: str, payload: object) -> dict:
+    if not isinstance(payload, dict):
+        raise ValueError("请求JSON必须是对象")
+    timezone = payload.get("timezone", "Asia/Shanghai")
+    if path == "/api/v2/calculate":
+        return calculate_snapshot(payload)
+    if path == "/api/v2/plan":
+        return plan_snapshot(payload)
+    if path == "/api/v2/extract":
+        return extract_notice(payload)
+    if path == "/api/parse":
+        return parse_notice_text(payload.get("text"), source="user input", reference_date=payload.get("reference_date"), timezone=timezone).to_dict()
+    if path == "/api/conflicts":
+        if "now" in payload and payload["now"] is None:
+            raise ValueError("now不能显式传null；请提供参照时刻，或省略以使用服务器当前时间")
+        if "availability" in payload and payload["availability"] is None:
+            raise ValueError("availability不能显式传null；空数组表示没有空闲，省略表示未知")
+        return detect_conflicts(payload.get("tasks", []), now=payload.get("now"), availability=payload.get("availability"), timezone=timezone)
+    raise ValueError("unknown endpoint")
 
 
 def write_cors(handler: BaseHTTPRequestHandler) -> None:
@@ -34,7 +62,7 @@ def json_response(handler: BaseHTTPRequestHandler, data: object, status: int = 2
 
 
 class CampusAgentHandler(BaseHTTPRequestHandler):
-    server_version = "CampusAgent/1.0"
+    server_version = "Sixu/1.11"
 
     def log_message(self, fmt: str, *args: object) -> None:
         print("[server]", self.address_string(), "-", fmt % args)
@@ -53,13 +81,13 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                 self,
                 {
                     "ok": True,
-                    "name": "Campus Action Agent API",
-                    "message": "Backend is running. Try /api/health, /api/summary, /api/parse or /api/conflicts.",
-                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts"],
+                    "name": "司序·知所先后 API",
+                    "message": "Backend is running. /api/v2/extract is a separately configured local model service.",
+                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan"],
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "Campus Action Agent API", "version": "1.0"})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.11", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1"], "model_extraction": extraction_service_status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -69,36 +97,64 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
         if path == "/api/analyze-case":
             case_id = query.get("id", [""])[0]
             cases = load_conflict_cases(DATA_DIR).get("cases", [])
-            case = next((item for item in cases if item.get("case_id") == case_id), cases[0] if cases else None)
+            case = next((item for item in cases if item.get("case_id") == case_id), None) if case_id else (cases[0] if cases else None)
             if not case:
                 return json_response(self, {"error": "no case found"}, 404)
-            return json_response(self, {"case": case, "analysis": detect_conflicts(case.get("tasks", []), now=case.get("scenario_period", {}).get("start"))})
+            reference = case.get("scenario_period", {}).get("start")
+            assumptions = []
+            if isinstance(reference, str) and DATE_ONLY.fullmatch(reference):
+                reference += " 00:00"
+                assumptions.append("历史演示案例只给起始日期，本接口显式以当日00:00重放；这不是用户当前时刻。")
+            try:
+                analysis = detect_conflicts(case.get("tasks", []), now=reference)
+            except ValueError as exc:
+                return json_response(self, {"error": str(exc)}, 400)
+            analysis["warnings"].extend(assumptions)
+            return json_response(self, {"case": case, "analysis": analysis})
         if path == "/api/parsed-samples":
-            limit = int(query.get("limit", ["10"])[0])
+            try:
+                limit = int(query.get("limit", ["10"])[0])
+                if not 0 <= limit <= 100:
+                    raise ValueError
+            except ValueError:
+                return json_response(self, {"error": "limit must be an integer from 0 to 100"}, 400)
             return json_response(self, parse_sample_documents(DATA_DIR, limit=limit))
         return self.serve_static(path)
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length).decode("utf-8", errors="ignore") if length else "{}"
+        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan"}:
+            return json_response(self, {"error": "unknown endpoint"}, 404)
+        if parsed.path == "/api/v2/extract" and not local_extraction_allowed(self.client_address[0], self.headers.get("Origin")):
+            return json_response(self, {"error": "模型提取本轮仅允许受控本机访问，请使用本地工作台；公网部署需先配置鉴权网关。", "code": "local_access_required"}, 403)
+        budget_acquired = False
         try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            return json_response(self, {"error": "invalid json body"}, 400)
-        if parsed.path == "/api/parse":
-            text = str(payload.get("text", ""))
-            if not text.strip():
-                return json_response(self, {"error": "text is required"}, 400)
-            task = parse_notice_text(text, source="user input")
-            return json_response(self, task.to_dict())
-        if parsed.path == "/api/conflicts":
-            tasks = payload.get("tasks", [])
-            if not isinstance(tasks, list):
-                return json_response(self, {"error": "tasks must be a list"}, 400)
-            now = payload.get("now")
-            return json_response(self, detect_conflicts(tasks, now=now))
-        return json_response(self, {"error": "unknown endpoint"}, 404)
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 0:
+                raise ValueError("Content-Length不得为负数")
+            snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan"}
+            limit = MAX_SNAPSHOT_BODY_BYTES if snapshot_request else MAX_BODY_BYTES
+            if length > limit:
+                message = "快照超过15,000,000字节，请导出并拆分清单后重试" if snapshot_request else "请求体超过1MiB，请分批处理"
+                return json_response(self, {"error": message}, 413)
+            raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+            def reject_constant(value: str) -> None:
+                raise ValueError(f"JSON不允许{value}")
+            payload = json.loads(raw, parse_constant=reject_constant)
+            if parsed.path == "/api/v2/extract":
+                budget_error = EXTRACTION_BUDGET.acquire()
+                if budget_error:
+                    return json_response(self, {"error": budget_error, "code": "model_request_limit"}, 429)
+                budget_acquired = True
+            result = process_post(parsed.path, payload)
+        except ExtractionServiceError as exc:
+            return json_response(self, {"error": str(exc), "code": exc.code}, exc.status)
+        except (ValueError, UnicodeError, RecursionError) as exc:
+            return json_response(self, {"error": str(exc)}, 400)
+        finally:
+            if budget_acquired:
+                EXTRACTION_BUDGET.release()
+        return json_response(self, result)
 
     def serve_static(self, path: str) -> None:
         file_path = (WEB_DIR / path.lstrip("/")).resolve()

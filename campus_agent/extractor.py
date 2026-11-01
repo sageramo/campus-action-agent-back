@@ -6,6 +6,7 @@ from pathlib import Path
 from .models import ActionTask, TimePoint
 from .text_io import read_text_file
 from .time_parser import extract_time_candidates
+from .time_utils import DEFAULT_TIMEZONE
 
 
 MATERIAL_HINTS = ["申请表", "报名表", "成绩单", "准考证", "身份证", "学生证", "照片", "PPT", "简历", "承诺书", "证明", "材料", "附件"]
@@ -40,8 +41,13 @@ def guess_title(text: str, filename: str = "") -> str:
 def extract_materials(text: str) -> list[str]:
     materials: list[str] = []
     for hint in MATERIAL_HINTS:
-        if hint in text and hint not in materials:
-            materials.append(hint)
+        for match in re.finditer(re.escape(hint), text):
+            prefix = re.split(r"[，,。；;\n]", text[:match.start()])[-1]
+            # Bound a negation by an explicit contrast/positive instruction.
+            prefix = re.split(r"但|而|只需|仍需|必须", prefix)[-1]
+            if not re.search(r"无需|无须|不必|不用|不需要|免交|免于|不得|禁止", prefix):
+                materials.append(hint)
+                break
     return materials
 
 
@@ -66,8 +72,10 @@ def missing_fields(task: ActionTask) -> list[str]:
     missing: list[str] = []
     if not task.time_points:
         missing.append("关键时间")
-    if not task.location:
+    if not task.locations:
         missing.append("地点")
+    elif len(task.locations) > 1:
+        missing.append("地点与事项对应关系")
     if not task.materials and task.category in {"办事流程", "评奖/项目申报", "入学/转专业"}:
         missing.append("所需材料")
     if not task.department:
@@ -75,28 +83,29 @@ def missing_fields(task: ActionTask) -> list[str]:
     return missing
 
 
-def parse_notice_text(text: str, source: str = "", source_category: str = "") -> ActionTask:
+def parse_notice_text(text: str, source: str = "", source_category: str = "", *, reference_date: str | None = None, timezone: str = DEFAULT_TIMEZONE) -> ActionTask:
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("text 必须是非空字符串")
+    if len(text) > 100_000:
+        raise ValueError("通知文本不得超过100000字，请分批处理")
     category = infer_category(text, source_category)
-    time_points = [
-        TimePoint(
-            time_type=item.time_type,
-            value=item.value,
-            evidence=item.evidence,
-            confidence=item.confidence,
-        )
-        for item in extract_time_candidates(text)
-    ]
-    location_match = LOCATION_RE.search(text)
+    warnings: list[str] = []
+    time_points = [TimePoint(**item.to_dict()) for item in extract_time_candidates(text, reference_date=reference_date, timezone=timezone, warnings=warnings)]
+    locations = list(dict.fromkeys(match.group(1).strip() for match in LOCATION_RE.finditer(text)))
+    if len(locations) > 1:
+        warnings.append("已保留多个地点，尚未确认各地点对应的具体事项，不能统一套用第一个地点。")
     department_match = DEPARTMENT_RE.search(text)
     task = ActionTask(
         task_name=guess_title(text, source),
         category=category,
         time_points=time_points,
-        location=location_match.group(1).strip() if location_match else None,
+        location=locations[0] if len(locations) == 1 else None,
         department=department_match.group(1) if department_match else None,
         materials=extract_materials(text),
         source=source,
         confidence=0.82 if time_points else 0.62,
+        locations=locations,
+        warnings=warnings,
     )
     task.steps = extract_steps(text, category, time_points)
     task.missing_fields = missing_fields(task)

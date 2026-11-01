@@ -1,0 +1,587 @@
+[
+  {
+    "id": "N01",
+    "title": "下午3点应规范为15点",
+    "adapter": "notice",
+    "input": {
+      "text": "请于2026年10月25日下午3点前报名。"
+    },
+    "checks": [
+      {
+        "field": "time_values",
+        "op": "contains",
+        "value": "2026-10-25 15:00"
+      }
+    ]
+  },
+  {
+    "id": "N02",
+    "title": "活动区间保留20点结束",
+    "adapter": "notice",
+    "input": {
+      "text": "比赛时间为2026年10月26日18:00-20:00。"
+    },
+    "checks": [
+      {
+        "field": "time_values",
+        "op": "contains_fragment",
+        "value": "20:00"
+      }
+    ]
+  },
+  {
+    "id": "N03",
+    "title": "活动时间不被前句报名污染",
+    "adapter": "notice",
+    "input": {
+      "text": "讲座报名通知\n请于2026年10月25日下午3点前报名，讲座于2026年10月26日18:00-20:00在教学楼101举行。"
+    },
+    "checks": [
+      {
+        "field": "time_types",
+        "op": "contains",
+        "value": {
+          "value": "2026-10-26 18:00",
+          "type": "活动/比赛时间"
+        }
+      }
+    ]
+  },
+  {
+    "id": "N04",
+    "title": "相对日期使用明确参照",
+    "adapter": "notice",
+    "input": {
+      "text": "明天下午3点截止报名。",
+      "reference_date": "2026-10-24",
+      "timezone": "Asia/Shanghai"
+    },
+    "note": "v1通知函数未接收reference_date；此例记录其现有能力缺口。",
+    "checks": [
+      {
+        "field": "time_values",
+        "op": "contains",
+        "value": "2026-10-25 15:00"
+      }
+    ]
+  },
+  {
+    "id": "N05",
+    "title": "非法日期不得作为有效时间输出",
+    "adapter": "notice",
+    "input": {
+      "text": "请于2026年13月45日99:99提交申请表。"
+    },
+    "checks": [
+      {
+        "field": "invalid_dates",
+        "op": "equals",
+        "value": []
+      }
+    ]
+  },
+  {
+    "id": "N06",
+    "title": "无需提交的证件不列为必需材料",
+    "adapter": "notice",
+    "input": {
+      "text": "无需提交身份证，只需提交申请表。"
+    },
+    "checks": [
+      {
+        "field": "materials",
+        "op": "not_contains",
+        "value": "身份证"
+      }
+    ]
+  },
+  {
+    "id": "N07",
+    "title": "不同环节的地点分别保留",
+    "adapter": "notice",
+    "input": {
+      "text": "2026年10月25日交申请表，地点为学院201。2026年10月26日答辩，地点为主楼405。"
+    },
+    "checks": [
+      {
+        "field": "locations",
+        "op": "contains",
+        "value": "主楼405"
+      }
+    ]
+  },
+  {
+    "id": "N08",
+    "title": "普通报名截止继续正确抽取",
+    "adapter": "notice",
+    "input": {
+      "text": "请于2026年10月25日12:00前报名。"
+    },
+    "checks": [
+      {
+        "field": "time_values",
+        "op": "contains",
+        "value": "2026-10-25 12:00"
+      }
+    ]
+  },
+  {
+    "id": "N09",
+    "title": "明确申请表材料继续保留",
+    "adapter": "notice",
+    "input": {
+      "text": "请于2026年10月25日12:00前提交申请表，地点为学院201。"
+    },
+    "checks": [
+      {
+        "field": "materials",
+        "op": "contains",
+        "value": "申请表"
+      }
+    ]
+  },
+  {
+    "id": "D01",
+    "title": "24点规范为次日零点",
+    "adapter": "datetime",
+    "input": {
+      "value": "2026-10-25 24:00"
+    },
+    "checks": [
+      {
+        "field": "normalized",
+        "op": "equals",
+        "value": "2026-10-26 00:00"
+      }
+    ]
+  },
+  {
+    "id": "C01",
+    "title": "剩9分钟不能容纳3小时任务",
+    "adapter": "conflicts",
+    "input": {
+      "now": "2026-10-26 23:50",
+      "tasks": [
+        {
+          "task_id": "T1",
+          "name": "报告提交",
+          "category": "学习",
+          "estimated_hours": 3,
+          "deadline": "2026-10-26 23:59",
+          "priority": 90,
+          "must_do": true
+        }
+      ]
+    },
+    "checks": [
+      {
+        "field": "conflict_types",
+        "op": "contains",
+        "value": "capacity_shortage"
+      }
+    ]
+  },
+  {
+    "id": "C02",
+    "title": "没有冲突不无条件劝退低优先级事项",
+    "adapter": "conflicts",
+    "input": {
+      "now": "2026-10-26 08:00",
+      "tasks": [
+        {
+          "task_id": "T1",
+          "name": "可选读书会准备",
+          "category": "其他",
+          "estimated_hours": 1,
+          "deadline": "2026-10-30 18:00",
+          "priority": 30,
+          "must_do": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "field": "drop_or_delegate",
+        "op": "equals",
+        "value": []
+      }
+    ]
+  },
+  {
+    "id": "C03",
+    "title": "相邻固定事项不误报重叠",
+    "adapter": "conflicts",
+    "input": {
+      "now": "2026-10-26 08:00",
+      "tasks": [
+        {
+          "task_id": "A",
+          "name": "课程A",
+          "category": "固定",
+          "fixed_time": {
+            "start": "2026-10-26 10:00",
+            "end": "2026-10-26 11:00"
+          }
+        },
+        {
+          "task_id": "B",
+          "name": "会议B",
+          "category": "固定",
+          "fixed_time": {
+            "start": "2026-10-26 11:00",
+            "end": "2026-10-26 12:00"
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "field": "conflict_types",
+        "op": "not_contains",
+        "value": "hard_time_overlap"
+      }
+    ]
+  },
+  {
+    "id": "C04",
+    "title": "真实固定重叠继续识别",
+    "adapter": "conflicts",
+    "input": {
+      "now": "2026-10-26 08:00",
+      "tasks": [
+        {
+          "task_id": "A",
+          "name": "课程A",
+          "category": "固定",
+          "fixed_time": {
+            "start": "2026-10-26 10:00",
+            "end": "2026-10-26 11:00"
+          }
+        },
+        {
+          "task_id": "B",
+          "name": "会议B",
+          "category": "固定",
+          "fixed_time": {
+            "start": "2026-10-26 10:30",
+            "end": "2026-10-26 11:30"
+          }
+        }
+      ]
+    },
+    "checks": [
+      {
+        "field": "conflict_types",
+        "op": "contains",
+        "value": "hard_time_overlap"
+      }
+    ]
+  },
+  {
+    "id": "V01",
+    "title": "个人空闲扣除固定占用且不双扣",
+    "adapter": "snapshot",
+    "input": {
+      "schema_version": 2,
+      "revision": 3,
+      "label": "阶段3虚构开发回归",
+      "timezone": "Asia/Shanghai",
+      "reference_time": "2026-10-26T09:00:00+08:00",
+      "sources": [],
+      "tasks": [
+        {
+          "id": "work",
+          "source_id": null,
+          "title": "虚构事项work",
+          "kind": "flexible",
+          "status": "confirmed",
+          "earliest_start_at": null,
+          "deadline_at": "2026-10-26T12:00:00+08:00",
+          "fixed_start_at": null,
+          "fixed_end_at": null,
+          "visit_windows": [],
+          "remaining_minutes": 120,
+          "splittable": true,
+          "min_block_minutes": 1,
+          "must_do": true,
+          "priority": 80,
+          "location": null,
+          "materials": [],
+          "depends_on": [],
+          "confirmed_fields": [
+            "title",
+            "kind",
+            "must_do",
+            "priority",
+            "deadline_at",
+            "remaining_minutes",
+            "splittable",
+            "min_block_minutes"
+          ],
+          "evidence": [],
+          "uncertainties": []
+        },
+        {
+          "id": "meeting-1",
+          "source_id": null,
+          "title": "虚构事项meeting-1",
+          "kind": "fixed",
+          "status": "confirmed",
+          "earliest_start_at": null,
+          "deadline_at": null,
+          "fixed_start_at": "2026-10-26T10:00:00+08:00",
+          "fixed_end_at": "2026-10-26T11:00:00+08:00",
+          "visit_windows": [],
+          "remaining_minutes": 0,
+          "splittable": null,
+          "min_block_minutes": null,
+          "must_do": true,
+          "priority": 80,
+          "location": null,
+          "materials": [],
+          "depends_on": [],
+          "confirmed_fields": [
+            "title",
+            "kind",
+            "must_do",
+            "priority",
+            "fixed_start_at",
+            "fixed_end_at"
+          ],
+          "evidence": [],
+          "uncertainties": []
+        },
+        {
+          "id": "meeting-2",
+          "source_id": null,
+          "title": "虚构事项meeting-2",
+          "kind": "fixed",
+          "status": "confirmed",
+          "earliest_start_at": null,
+          "deadline_at": null,
+          "fixed_start_at": "2026-10-26T10:00:00+08:00",
+          "fixed_end_at": "2026-10-26T11:00:00+08:00",
+          "visit_windows": [],
+          "remaining_minutes": 0,
+          "splittable": null,
+          "min_block_minutes": null,
+          "must_do": true,
+          "priority": 80,
+          "location": null,
+          "materials": [],
+          "depends_on": [],
+          "confirmed_fields": [
+            "title",
+            "kind",
+            "must_do",
+            "priority",
+            "fixed_start_at",
+            "fixed_end_at"
+          ],
+          "evidence": [],
+          "uncertainties": []
+        }
+      ],
+      "availability_confirmed": true,
+      "availability": [
+        {
+          "start": "2026-10-26T09:00:00+08:00",
+          "end": "2026-10-26T12:00:00+08:00"
+        }
+      ]
+    },
+    "checks": [
+      {
+        "field": "available_minutes",
+        "op": "equals",
+        "value": [
+          120
+        ]
+      },
+      {
+        "field": "known_required_minutes",
+        "op": "equals",
+        "value": [
+          120
+        ]
+      }
+    ]
+  },
+  {
+    "id": "V02",
+    "title": "完成任务不占剩余工作量或固定容量",
+    "adapter": "snapshot",
+    "input": {
+      "schema_version": 2,
+      "revision": 3,
+      "label": "阶段3虚构开发回归",
+      "timezone": "Asia/Shanghai",
+      "reference_time": "2026-10-26T09:00:00+08:00",
+      "sources": [],
+      "tasks": [
+        {
+          "id": "active",
+          "source_id": null,
+          "title": "虚构事项active",
+          "kind": "flexible",
+          "status": "confirmed",
+          "earliest_start_at": null,
+          "deadline_at": "2026-10-26T12:00:00+08:00",
+          "fixed_start_at": null,
+          "fixed_end_at": null,
+          "visit_windows": [],
+          "remaining_minutes": 45,
+          "splittable": true,
+          "min_block_minutes": 1,
+          "must_do": true,
+          "priority": 80,
+          "location": null,
+          "materials": [],
+          "depends_on": [],
+          "confirmed_fields": [
+            "title",
+            "kind",
+            "must_do",
+            "priority",
+            "deadline_at",
+            "remaining_minutes",
+            "splittable",
+            "min_block_minutes"
+          ],
+          "evidence": [],
+          "uncertainties": []
+        },
+        {
+          "id": "completed",
+          "source_id": null,
+          "title": "虚构事项completed",
+          "kind": "flexible",
+          "status": "completed",
+          "earliest_start_at": null,
+          "deadline_at": "2026-10-26T12:00:00+08:00",
+          "fixed_start_at": null,
+          "fixed_end_at": null,
+          "visit_windows": [],
+          "remaining_minutes": 0,
+          "splittable": true,
+          "min_block_minutes": 1,
+          "must_do": true,
+          "priority": 80,
+          "location": null,
+          "materials": [],
+          "depends_on": [],
+          "confirmed_fields": [
+            "title",
+            "kind",
+            "must_do",
+            "priority",
+            "deadline_at",
+            "remaining_minutes",
+            "splittable",
+            "min_block_minutes"
+          ],
+          "evidence": [],
+          "uncertainties": []
+        },
+        {
+          "id": "completed-meeting",
+          "source_id": null,
+          "title": "虚构事项completed-meeting",
+          "kind": "fixed",
+          "status": "completed",
+          "earliest_start_at": null,
+          "deadline_at": null,
+          "fixed_start_at": "2026-10-26T10:00:00+08:00",
+          "fixed_end_at": "2026-10-26T11:00:00+08:00",
+          "visit_windows": [],
+          "remaining_minutes": 0,
+          "splittable": null,
+          "min_block_minutes": null,
+          "must_do": true,
+          "priority": 80,
+          "location": null,
+          "materials": [],
+          "depends_on": [],
+          "confirmed_fields": [
+            "title",
+            "kind",
+            "must_do",
+            "priority",
+            "fixed_start_at",
+            "fixed_end_at"
+          ],
+          "evidence": [],
+          "uncertainties": []
+        }
+      ],
+      "availability_confirmed": true,
+      "availability": [
+        {
+          "start": "2026-10-26T09:00:00+08:00",
+          "end": "2026-10-26T12:00:00+08:00"
+        }
+      ]
+    },
+    "checks": [
+      {
+        "field": "known_required_minutes",
+        "op": "equals",
+        "value": [
+          45
+        ]
+      },
+      {
+        "field": "available_minutes",
+        "op": "equals",
+        "value": [
+          180
+        ]
+      },
+      {
+        "field": "inactive_count",
+        "op": "equals",
+        "value": 2
+      }
+    ]
+  },
+  {
+    "id": "V03",
+    "title": "编辑后旧响应失效，同版本最新请求胜出",
+    "adapter": "node_revision",
+    "input": {
+      "initial_revision": 2
+    },
+    "checks": [
+      {
+        "field": "revision",
+        "op": "equals",
+        "value": 3
+      },
+      {
+        "field": "old_accepted_after_edit",
+        "op": "equals",
+        "value": false
+      },
+      {
+        "field": "new_accepted",
+        "op": "equals",
+        "value": true
+      },
+      {
+        "field": "earlier_same_revision_accepted",
+        "op": "equals",
+        "value": false
+      },
+      {
+        "field": "latest_accepted",
+        "op": "equals",
+        "value": true
+      },
+      {
+        "field": "accepted_after_reset",
+        "op": "equals",
+        "value": false
+      }
+    ]
+  }
+]

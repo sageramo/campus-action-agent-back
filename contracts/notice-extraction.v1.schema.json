@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sixu:notice-extraction:v1",
+  "title": "司序：通知候选提取原始输出 v1",
+  "description": "模型只摘录候选事项和原文片段；时间规范化及证据校验由服务端完成，用户确认和任务状态不属于此接口。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidates", "warnings"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "candidates": {"type": "array", "maxItems": 40, "items": {"$ref": "#/$defs/candidate"}},
+    "warnings": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/note"}}
+  },
+  "$defs": {
+    "note": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "nullableTimeQuote": {"type": ["string", "null"], "minLength": 1, "maxLength": 3000},
+    "nullableLocationQuote": {"type": ["string", "null"], "minLength": 1, "maxLength": 500},
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "kind", "action_quote", "time_quote", "location_quote", "materials_quotes", "uncertainties"],
+      "properties": {
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "kind": {"enum": ["flexible", "fixed", "milestone", "visit_window"]},
+        "action_quote": {"type": "string", "minLength": 1, "maxLength": 3000},
+        "time_quote": {"$ref": "#/$defs/nullableTimeQuote"},
+        "location_quote": {"$ref": "#/$defs/nullableLocationQuote"},
+        "materials_quotes": {"type": "array", "maxItems": 30, "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+        "uncertainties": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/note"}}
+      }
+    }
+  }
+}

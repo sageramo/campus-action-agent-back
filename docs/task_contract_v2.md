@@ -1,0 +1,39 @@
+# v2任务快照：本地确认与重算契约
+
+阶段3已在本地实现，入口 `POST /api/v2/calculate`，请求体直接为snapshot。浏览器维护唯一清单，Python无状态校验并计算；响应不返回可回写的任务列表，也不保存用户的第二份任务。线上Dify和Render仍待后续接入与发布。
+
+## 快照与空闲真值
+
+必需字段仍为schema_version=2、revision、timezone=Asia/Shanghai、带偏移的reference_time、sources、tasks、availability，新增可选availability_confirmed:boolean。前端新快照为false；用户显式保存空闲区间或确认没有空闲后为true。true+[]代表零可用，false代表尚未确认；兼容早期无此字段的文件：非空区间视作已提供、空数组视作未知。未知时只检查扣除固定占用后的物理上界，并要求补信息，不静默补工作日4小时或把未知当零。
+
+相对日期解释需要用户选择原语境参照日，日期选择不等于知道通知准确发布时间，所以published_at仍可为null。来源保存原文，source_text引文必须实际包含于所引用原文；user_input与inferred分别记录更改和推断，不能互相冒充。
+
+## 确认与修改
+
+候选始终为draft，耗时、是否必做和优先级不由模型偷偷补齐。手动输入时允许空标题草稿保存；非草稿名称必须非空。确认要求title/kind/must_do/priority，工作任务另需具体deadline_at、正整数remaining_minutes、splittable以及可拆时的min_block_minutes；固定事项需fixed_start_at/fixed_end_at；milestone需deadline_at且remaining_minutes=0。值存在和confirmed_fields包含相应字段均须满足，不能凭status字符串就视作已确认。
+
+页面“已逐项核对”是明确确认动作，会清除已核对的提取疑问，原文引文不删除；无法实施的约束仍由后端独立识别，不能靠清空提示消除。任何字段更改撤销对应确认，并使计算结果立即失效。校验失败的可见输入另外标为未保存，不能在它仍显示时计算旧值；同一事项另一字段修改不会解锁该错误。
+
+completed必须剩余0，cancelled也排除；完成和取消后恢复须走显式恢复动作，工作任务恢复为未知剩余量，需要重新估计。fixed只算占用，准备工作另建flexible；milestone只表示节点，不能代替实际准备工时。visit_window暂不支持确认排程，不会当作跨日期连续固定占用。
+
+## 校验与计算范围
+
+Schema检查结构，snapshot.py另验区间顺序、唯一ID、source/dependency引用、原文引文子串、依赖环、类型与占用混杂、完成状态。错误结构或矛盾数据返回400；草稿、缺值、缺关键确认和不支持的窗口任务在200结果中明确列入missing_information及excluded_task_ids，保留已知冲突证据，不将未知需求按零隐藏。页面正常路径在任何事项尚待核对时先拦计算；后端对外部调用也有范围保护。
+
+已确认工作与固定事项进入分钟容量计算，参考阶段2的区间并集、裁剪和占用扣除。earliest_start_at、未完成依赖、不可拆任务、min_block_minutes>1、固定事项的额外deadline均尚未完整排程验证，可输出放松后必要容量边界，但必须返回information_needed及明确限制；边界仍不足时可保留conflicts_detected。里程碑逾期未完成同样可见。
+
+返回schema_version、输入revision、status、conflicts、capacity_checks、missing_information、warnings、limitations及analyzed/excluded/inactive三组task IDs。status仅为conflicts_detected、information_needed、no_conflict_detected，容量单项necessary_bound_passed不代表排得进具体空档。本接口不返回feasible_found；具体排程使用独立的/api/v2/plan及其schema_version=1响应，详见planner_v1.md，不把启发式失败当数学无解。
+
+## 异步与存储
+
+每次输入更改提升revision；响应还要匹配最新请求身份，同revision的新请求也会令旧请求失效。重置、导入、换服务会撤销待返回结果。解析同样门控，迟到候选不能覆盖已修改清单；精确重复原文已有事项时不会重复添加。连接检查的成功和失败也只接受最新请求。
+
+本地自动保存通过同源Web Locks独占，并在锁内比较本标签上次读取的原始字节；不同分支不会因为revision相同就互相覆盖。冲突时保留当前内存、停写，用户可导出后加载最新版本。Web Locks或存储不可用则提示内存状态与导出备份，不做不安全写入；损坏旧数据不会被空快照自动覆盖。
+
+导入、导出与v2HTTP请求统一最多15,000,000 UTF-8字节，原v1接口仍为1MiB；超限说明需导出并拆分清单。前端的基础草稿检查不能代替后端语义校验。网页加载不自动发送通知，解析/计算前检查health的snapshot_v2能力，旧服务不作为静默降级。
+
+## 开发验收
+
+原阶段1示例nine-minutes.snapshot.json作为历史草案保留，确认字段少于当前门槛，不能直接当作用户已完成所有核对；snapshot测试补齐确认字段验证9分钟场景。当前页面的虚构九分钟例子仍要求点击确认，不自动伪造用户核对。
+
+原十四项可执行回归保留断言，新phase3-cases.json将原三项待实现要求绑定实际v2计算与浏览器RevisionGate模块；check_regressions.py默认运行当前fixture，可用--cases回放阶段1夹具。所有结果为开发回归，不是未见通知准确率。浏览器自动访问受保存权限阻止，纯DOM逻辑与真实HTTP测试不代替手机/桌面布局验收。

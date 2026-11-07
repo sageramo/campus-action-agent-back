@@ -1,0 +1,528 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sixu:task-snapshot:v3",
+  "title": "司序·知所先后：四层时间快照v3",
+  "description": "例行占用、自由时间（作息范围与手动调整）、临时占用、有截止的工作。跨字段语义由layers.py另行校验；缺信息以null表示未定义，不是错误。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "revision",
+    "timezone",
+    "reference_time",
+    "sources",
+    "daily_window",
+    "routines_confirmed",
+    "routines",
+    "free_adjustments",
+    "events",
+    "tasks"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "label": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "timezone": {
+      "const": "Asia/Shanghai"
+    },
+    "reference_time": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "sources": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "daily_window": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/clockRange"
+              }
+            ]
+          }
+        }
+      ],
+      "description": "周一到周日每天的作息范围；null表示自由时间未定义，某天为null表示当天不安排。"
+    },
+    "routines_confirmed": {
+      "type": "boolean",
+      "description": "false表示尚未填写课表等例行占用，也未确认没有。"
+    },
+    "routines": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/routine"
+      }
+    },
+    "free_adjustments": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/adjustment"
+      }
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/task"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "clock": {
+      "type": "string",
+      "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$|^24:00$"
+    },
+    "clockRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/clock"
+        },
+        "end": {
+          "$ref": "#/$defs/clock"
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "nullableTimestamp": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableText": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 500
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "notes": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1000
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "text",
+        "published_at"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "pasted_notice",
+            "manual",
+            "synthetic",
+            "timetable"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100000
+        },
+        "published_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "field",
+        "origin",
+        "source_id",
+        "quote"
+      ],
+      "properties": {
+        "field": {
+          "enum": [
+            "title",
+            "start_at",
+            "end_at",
+            "deadline_at",
+            "earliest_start_at",
+            "estimate_minutes",
+            "location",
+            "materials",
+            "weekdays",
+            "start",
+            "end"
+          ]
+        },
+        "origin": {
+          "enum": [
+            "source_text",
+            "user_input",
+            "inferred"
+          ]
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 3000
+        }
+      }
+    },
+    "routine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "weekdays",
+        "start",
+        "end",
+        "from",
+        "until",
+        "week_interval",
+        "skip_dates",
+        "location",
+        "source_id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "weekdays": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 7
+          }
+        },
+        "start": {
+          "$ref": "#/$defs/clock"
+        },
+        "end": {
+          "$ref": "#/$defs/clock"
+        },
+        "from": {
+          "$ref": "#/$defs/date"
+        },
+        "until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "week_interval": {
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "skip_dates": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/date"
+          }
+        },
+        "location": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "adjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "start_at",
+        "end_at",
+        "note"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "add",
+            "remove"
+          ]
+        },
+        "start_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "end_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "note": {
+          "$ref": "#/$defs/nullableText"
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "start_at",
+        "end_at",
+        "location",
+        "status",
+        "source_id",
+        "evidence",
+        "notes"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "start_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "end_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "location": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "cancelled"
+          ]
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "notes": {
+          "$ref": "#/$defs/notes"
+        },
+        "kind": {
+          "enum": [
+            "temporary",
+            "appointment"
+          ],
+          "description": "temporary=点墨（外部安排的一次性事项）；appointment=落笔中的约定（自己约好的事）。省略时按temporary。"
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "deadline_at",
+        "estimate_minutes",
+        "splittable",
+        "min_block_minutes",
+        "earliest_start_at",
+        "priority",
+        "status",
+        "location",
+        "materials",
+        "source_id",
+        "evidence",
+        "notes"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "deadline_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "estimate_minutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20160
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "splittable": {
+          "type": "boolean"
+        },
+        "min_block_minutes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1440
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "earliest_start_at": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "priority": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "completed",
+            "cancelled"
+          ]
+        },
+        "location": {
+          "$ref": "#/$defs/nullableText"
+        },
+        "materials": {
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "notes": {
+          "$ref": "#/$defs/notes"
+        }
+      }
+    }
+  }
+}

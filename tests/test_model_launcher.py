@@ -31,3 +31,26 @@ class ModelLauncherTests(unittest.TestCase):
         for exception in (EOFError(), KeyboardInterrupt()):
             with self.subTest(error=type(exception).__name__):
                 self.run_cancelled(exception)
+
+    def start(self, keys):
+        seen = {}
+        output = io.StringIO()
+        def record(**kwargs):
+            seen.update(dify=LAUNCHER.os.environ.get('DIFY_API_KEY'), deepseek=LAUNCHER.os.environ.get('DEEPSEEK_API_KEY'))
+        with patch.object(LAUNCHER.sys, 'argv', ['start_model_local.py']), patch.object(LAUNCHER.socket, 'socket'), \
+                patch.object(LAUNCHER.sys.stdin, 'isatty', return_value=True), patch.object(LAUNCHER.getpass, 'getpass', side_effect=keys), \
+                patch.object(LAUNCHER, 'run', side_effect=record), patch.dict(LAUNCHER.os.environ, {}, clear=False), contextlib.redirect_stdout(output):
+            LAUNCHER.os.environ.pop('DEEPSEEK_API_KEY', None)
+            self.assertEqual(LAUNCHER.main(), 0)
+            after = (LAUNCHER.os.environ.get('DIFY_API_KEY'), LAUNCHER.os.environ.get('DEEPSEEK_API_KEY'))
+        return seen, after, output.getvalue()
+
+    def test_deepseek_key_is_optional_and_cleared_after_stop(self):
+        seen, after, text = self.start(['app-test-key', 'sk-test-deepseek'])
+        self.assertEqual(seen, {'dify': 'app-test-key', 'deepseek': 'sk-test-deepseek'})
+        self.assertEqual(after, (None, None))
+        self.assertIn('课表识别已启用', text)
+        self.assertNotIn('sk-test-deepseek', text)
+        seen, after, text = self.start(['app-test-key', ''])
+        self.assertEqual(seen['deepseek'], None)
+        self.assertIn('课表识别未启用', text)

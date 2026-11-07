@@ -46,7 +46,7 @@ MODEL_YEAR_GAP = re.compile(r"(?:未|没有|无法确定)[^。；;\n]{0,12}年�
 YEAR_ASSUMED_PREFIX = "原文未给年份，暂按 "
 # Only named events; a pickup or make-up whose time is announced later is not
 # turned into an attendance item.
-PENDING_TIME_EVENT = re.compile(r"(?P<event>宣讲会|说明会|座谈会|交流会|分享会|报告会|讲座|会议|比赛|竞赛|考试|培训|典礼|仪式|班会)"
+PENDING_TIME_EVENT = re.compile(r"(?P<event>宣讲会|说明会|座谈会|交流会|分享会|报告会|讲座|会议|选拔赛|初赛|复赛|决赛|比赛|竞赛|考试|培训|典礼|仪式|班会|晚会|演出|答辩)"
                                 r"(?:具体)?(?:时间|日期)[：:]?\s*(?:待定|另行通知|另行安排|暂未确定|待通知)[^。；;\n]*")
 MAX_CANDIDATES = 40
 ATTENDANCE_REQUIREMENT = re.compile(r"签到|签退|入场|入座|就座|着装|穿[^，,。；;\n]{0,6}(?:上衣|服装|正装)")

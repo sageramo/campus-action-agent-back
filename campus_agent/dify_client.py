@@ -158,6 +158,8 @@ def _fetch(config: _Config, request_body: bytes) -> dict:
             raise ExtractionServiceError("模型服务返回重定向，已阻止转发密钥；请检查服务端地址。", 502, "model_redirect_blocked") from None
         if upstream_status in {401, 403}:
             raise ExtractionServiceError("模型服务拒绝凭据，请在服务端检查工作流密钥和发布状态。", 502, "model_auth_rejected") from None
+        if upstream_status == 402:
+            raise ExtractionServiceError("模型服务余额不足，请在服务商处充值后重试。", 502, "model_balance_insufficient") from None
         if upstream_status == 429:
             raise ExtractionServiceError("模型服务达到调用限制，请稍后再试。", 503, "model_upstream_rate_limited") from None
         raise ExtractionServiceError("模型服务暂时不可用，请稍后重试。", 502, "model_upstream_error") from None

@@ -133,6 +133,12 @@ class PendingTimeActivityTests(TestCase):
                 self.assertEqual(extract(text, candidate('核对', text))['candidates'][0]['title'], '核对')
                 self.assertEqual(len(extract(text, candidate('核对', text))['candidates']), 1)
 
+    def test_named_contest_rounds_and_shows_are_supplemented_too(self):
+        for text, title in [('3. 校内选拔赛时间另行通知。', '参加选拔赛（时间待定）'), ('决赛时间待定。', '参加决赛（时间待定）'),
+                            ('迎新晚会时间另行通知。', '参加晚会（时间待定）')]:
+            with self.subTest(text=text):
+                self.assertEqual([task['title'] for task in extract(text)['candidates']], [title])
+
     def test_supplement_also_applies_when_the_model_returns_nothing(self):
         result = extract('期末考试时间另行通知，请留意。')
         self.assertEqual([task['title'] for task in result['candidates']], ['参加考试（时间待定）'])

@@ -13,6 +13,11 @@ from .extractor import parse_notice_text
 from .dify_client import ExtractionServiceError, extract_notice, extraction_service_status
 from .extraction_access import EXTRACTION_BUDGET, local_extraction_allowed
 from .snapshot import calculate_snapshot
+from .end_estimate import estimate_end
+from .layers import calendar_snapshot
+from .layer_import import items_from_candidates, items_from_rules
+from .timetable import recognize_timetable
+from .deepseek_client import deepseek_status
 from .planner import plan_snapshot
 from .time_utils import DATE_ONLY
 
@@ -33,6 +38,22 @@ def process_post(path: str, payload: object) -> dict:
         return plan_snapshot(payload)
     if path == "/api/v2/extract":
         return extract_notice(payload)
+    if path == "/api/v3/calendar":
+        return calendar_snapshot(payload)
+    if path == "/api/v3/timetable":
+        return recognize_timetable(payload)
+    if path == "/api/v3/estimate-end":
+        return estimate_end(payload)
+    if path == "/api/v3/extract":
+        request = {key: value for key, value in payload.items() if key != "mode"}
+        mode = payload.get("mode", "rules")
+        if mode == "rules":
+            if set(request) - {"text", "reference_date", "timezone"}:
+                raise ValueError("候选提取请求包含未知属性")
+            return items_from_rules(request.get("text"), request.get("reference_date"))
+        if mode == "model":
+            return items_from_candidates(extract_notice(request), request["text"], request.get("reference_date"))
+        raise ValueError("mode 只能是 rules 或 model")
     if path == "/api/parse":
         return parse_notice_text(payload.get("text"), source="user input", reference_date=payload.get("reference_date"), timezone=timezone).to_dict()
     if path == "/api/conflicts":
@@ -62,7 +83,7 @@ def json_response(handler: BaseHTTPRequestHandler, data: object, status: int = 2
 
 
 class CampusAgentHandler(BaseHTTPRequestHandler):
-    server_version = "Sixu/1.11"
+    server_version = "Sixu/1.17"
 
     def log_message(self, fmt: str, *args: object) -> None:
         print("[server]", self.address_string(), "-", fmt % args)
@@ -83,11 +104,11 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "name": "司序·知所先后 API",
                     "message": "Backend is running. /api/v2/extract is a separately configured local model service.",
-                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan"],
+                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"],
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.11", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1"], "model_extraction": extraction_service_status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.19", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -123,7 +144,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan"}:
+        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"}:
             return json_response(self, {"error": "unknown endpoint"}, 404)
         if parsed.path == "/api/v2/extract" and not local_extraction_allowed(self.client_address[0], self.headers.get("Origin")):
             return json_response(self, {"error": "模型提取本轮仅允许受控本机访问，请使用本地工作台；公网部署需先配置鉴权网关。", "code": "local_access_required"}, 403)
@@ -132,16 +153,21 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             if length < 0:
                 raise ValueError("Content-Length不得为负数")
-            snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan"}
-            limit = MAX_SNAPSHOT_BODY_BYTES if snapshot_request else MAX_BODY_BYTES
+            snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan", "/api/v3/calendar"}
+            # Timetable screenshots arrive as base64 and can exceed 1MiB.
+            limit = MAX_SNAPSHOT_BODY_BYTES if snapshot_request or parsed.path == "/api/v3/timetable" else MAX_BODY_BYTES
             if length > limit:
-                message = "快照超过15,000,000字节，请导出并拆分清单后重试" if snapshot_request else "请求体超过1MiB，请分批处理"
+                message = "快照超过15,000,000字节，请导出并拆分清单后重试" if snapshot_request else "请求体过大，请缩小图片或分批处理" if parsed.path == "/api/v3/timetable" else "请求体超过1MiB，请分批处理"
                 return json_response(self, {"error": message}, 413)
             raw = self.rfile.read(length).decode("utf-8") if length else "{}"
             def reject_constant(value: str) -> None:
                 raise ValueError(f"JSON不允许{value}")
             payload = json.loads(raw, parse_constant=reject_constant)
-            if parsed.path == "/api/v2/extract":
+            model_request = parsed.path == "/api/v2/extract" or (parsed.path in {"/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"} and isinstance(payload, dict)
+                                                                and payload.get("mode", "model" if parsed.path == "/api/v3/timetable" else "rules") in {"model", "image"})
+            if model_request and parsed.path != "/api/v2/extract" and not local_extraction_allowed(self.client_address[0], self.headers.get("Origin")):
+                return json_response(self, {"error": "模型提取本轮仅允许受控本机访问，请使用本地工作台；公网部署需先配置鉴权网关。", "code": "local_access_required"}, 403)
+            if model_request:
                 budget_error = EXTRACTION_BUDGET.acquire()
                 if budget_error:
                     return json_response(self, {"error": budget_error, "code": "model_request_limit"}, 429)

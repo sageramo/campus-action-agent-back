@@ -10,6 +10,7 @@ import warnings
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from campus_agent.dify_client import extraction_service_status
+from campus_agent.deepseek_client import deepseek_status
 from campus_agent.server import run
 
 
@@ -43,13 +44,29 @@ def main():
         print('模型配置不完整，请核对地址、应用密钥和超时设置。')
         os.environ.pop('DIFY_API_KEY', None)
         return 1
-    print('本地模型入口已启用；配置检查通过，尚未验证上游连通性。按 Ctrl+C 停止。')
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', getpass.GetPassWarning)
+            deepseek_key = getpass.getpass('粘贴 DeepSeek API Key（用于课表识别；直接回车跳过；输入不显示、不保存）：').strip()
+    except (getpass.GetPassWarning, EOFError, KeyboardInterrupt):
+        print('\n无法安全读取隐藏输入或操作已取消；服务未启动。')
+        os.environ.pop('DIFY_API_KEY', None)
+        return 1
+    if deepseek_key:
+        os.environ['DEEPSEEK_API_KEY'] = deepseek_key
+        if not deepseek_status()['configured']:
+            print('DeepSeek Key 格式不对，本次不启用课表识别；其他功能照常。')
+            os.environ.pop('DEEPSEEK_API_KEY', None)
+    del deepseek_key
+    timetable = '已启用' if deepseek_status()['configured'] else '未启用'
+    print(f'本地模型入口已启用，课表识别{timetable}；配置检查通过，尚未验证上游连通性。按 Ctrl+C 停止。')
     try:
         run(host='127.0.0.1', port=args.port)
     except KeyboardInterrupt:
         pass
     finally:
         os.environ.pop('DIFY_API_KEY', None)
+        os.environ.pop('DEEPSEEK_API_KEY', None)
     return 0
 
 

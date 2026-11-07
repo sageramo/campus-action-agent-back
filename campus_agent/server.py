@@ -11,7 +11,7 @@ from .conflict import detect_conflicts
 from .data_loader import DATA_DIR, dataset_summary, load_conflict_cases, load_multitime_samples, parse_sample_documents
 from .extractor import parse_notice_text
 from .dify_client import ExtractionServiceError, extract_notice, extraction_service_status
-from .extraction_access import EXTRACTION_BUDGET, local_extraction_allowed
+from .extraction_access import EXTRACTION_BUDGET, PUBLIC_MODEL_GATE, forwarded_client_ip, local_extraction_allowed
 from .snapshot import calculate_snapshot
 from .end_estimate import estimate_end
 from .layers import calendar_snapshot
@@ -68,7 +68,7 @@ def process_post(path: str, payload: object) -> dict:
 def write_cors(handler: BaseHTTPRequestHandler) -> None:
     handler.send_header("Access-Control-Allow-Origin", "*")
     handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Sixu-Access")
     handler.send_header("Access-Control-Max-Age", "86400")
 
 
@@ -108,7 +108,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.19", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.20", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -146,8 +146,6 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"}:
             return json_response(self, {"error": "unknown endpoint"}, 404)
-        if parsed.path == "/api/v2/extract" and not local_extraction_allowed(self.client_address[0], self.headers.get("Origin")):
-            return json_response(self, {"error": "模型提取本轮仅允许受控本机访问，请使用本地工作台；公网部署需先配置鉴权网关。", "code": "local_access_required"}, 403)
         budget_acquired = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -165,8 +163,14 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
             payload = json.loads(raw, parse_constant=reject_constant)
             model_request = parsed.path == "/api/v2/extract" or (parsed.path in {"/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"} and isinstance(payload, dict)
                                                                 and payload.get("mode", "model" if parsed.path == "/api/v3/timetable" else "rules") in {"model", "image"})
-            if model_request and parsed.path != "/api/v2/extract" and not local_extraction_allowed(self.client_address[0], self.headers.get("Origin")):
-                return json_response(self, {"error": "模型提取本轮仅允许受控本机访问，请使用本地工作台；公网部署需先配置鉴权网关。", "code": "local_access_required"}, 403)
+            # The local workbench is trusted; anything else needs the server's access code and stays
+            # within the daily caps (extraction_access.PublicModelGate).
+            if model_request and not local_extraction_allowed(self.client_address[0], self.headers.get("Origin")):
+                client = forwarded_client_ip(self.client_address[0], self.headers.get("X-Forwarded-For"))
+                refused = PUBLIC_MODEL_GATE.check(client, self.headers.get("Origin"), self.headers.get("X-Sixu-Access"))
+                if refused:
+                    message, status, code = refused
+                    return json_response(self, {"error": message, "code": code}, status)
             if model_request:
                 budget_error = EXTRACTION_BUDGET.acquire()
                 if budget_error:

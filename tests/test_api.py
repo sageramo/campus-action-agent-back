@@ -46,7 +46,7 @@ class APITests(unittest.TestCase):
 
     def test_health_exposes_new_version(self):
         status, result = self.request("GET", "/api/health")
-        self.assertEqual((status, result["version"]), (200, "1.11"))
+        self.assertEqual((status, result["version"]), (200, "1.19"))
         self.assertIn('model_notice_candidates_v1', result['capabilities'])
         self.assertEqual(set(result['model_extraction']), {'configured', 'enabled'})
 

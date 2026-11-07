@@ -58,9 +58,18 @@ TYPE_HINTS = [
 ]
 
 
+DEADLINE_AFTER = re.compile(r"\s*(?:(?:之|以)?前|截止|为止)")
+# Labels that can name a deadline; event labels cannot.
+DEADLINE_LABELS = {"报名截止", "材料提交", "选课时间", "办理时间", "退赛/撤回截止"}
+
+
 def infer_time_type(context: str, start: int = 0, end: int = 0) -> tuple[str, float]:
+    # "15:00前完成讲座报名": the 前 decides the time's role even if 讲座 is the nearest hint.
+    deadline = end > start and bool(DEADLINE_AFTER.match(context, end))
     hits = []
     for order, (label, hints) in enumerate(TYPE_HINTS):
+        if deadline and label not in DEADLINE_LABELS:
+            continue
         for hint in hints:
             for match in re.finditer(re.escape(hint), context):
                 distance = max(start - match.end(), match.start() - end, 0)

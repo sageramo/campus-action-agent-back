@@ -24,3 +24,18 @@
 `deploy/`为历史静态副本，正式本地工作台在同级前端仓库；发布前需明确边界，不能把历史页当作新工作台。根目录Git是本地来源快照，无远程推送。
 
 模型配置名见env.example，程序不会自动加载.env。本轮仅允许实际loopback客户端，有Origin时还需命中精确允许列表；服务端每进程并发1、每分钟6次、每小时60次，重启重置，不代表金额预算或公网鉴权。不要把模型端点通过本机反向代理无鉴权转发到公网。导入与隐藏密钥启动方法见父目录reports/阶段4-Dify导入与接入操作.md；密钥不放前端、不发聊天、不存仓库。真实Dify导入与模型联调仍需账户操作，合成预期样例仅用于软件链路验证。
+
+## 线上开放模型功能（1.20）
+
+默认只有本机工作台能调用模型。要让 GitHub Pages 上的页面也能用模型提取、课表识别和结束时间估计，在 Render 服务的 Environment 里填写（不要写进代码或前端）：
+
+| 变量 | 说明 |
+|---|---|
+| `SIXU_MODEL_ACCESS_CODE` | 访问口令，至少6位；只告诉评委和同学。页面第一次用模型时会要求输入，并保存在该浏览器 |
+| `DEEPSEEK_API_KEY` | DeepSeek 的 Key（课表识别、结束时间估计） |
+| `SIXU_MODEL_EXTRACTION_ENABLED` | 设为 `true` 才启用 Dify 模型提取 |
+| `DIFY_API_KEY` | Dify 应用的 API Key；`DIFY_API_BASE` 默认 `https://api.dify.ai/v1` |
+| `SIXU_MODEL_DAILY_LIMIT` / `SIXU_MODEL_IP_DAILY_LIMIT` | 每天全站 / 每个IP 的模型调用上限，默认 200 / 30 |
+| `SIXU_PUBLIC_ORIGINS` | 允许调用的页面地址，默认 `https://sageramo.github.io` |
+
+口令错 10 次锁定该 IP 一小时；超过每日上限返回 429，页面会提示改用规则提取。`/api/health` 的 `model_access.code_required` 表示是否已开启。

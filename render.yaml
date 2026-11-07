@@ -8,3 +8,18 @@ services:
     envVars:
       - key: HOST
         value: 0.0.0.0
+      - key: SIXU_PUBLIC_ORIGINS
+        value: https://sageramo.github.io
+      - key: SIXU_MODEL_DAILY_LIMIT
+        value: "200"
+      - key: SIXU_MODEL_IP_DAILY_LIMIT
+        value: "30"
+      # Secrets: set these in the Render dashboard, never in this file.
+      - key: SIXU_MODEL_ACCESS_CODE
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DIFY_API_KEY
+        sync: false
+      - key: SIXU_MODEL_EXTRACTION_ENABLED
+        sync: false

@@ -1,0 +1,17 @@
+# Render's free plan sleeps after ~15 idle minutes and takes ~30-50 s to wake, which is what a first
+# visitor (or a judge) would see. During the hours people use 司序 (08:00-24:00 Beijing = 00:00-16:00 UTC),
+# knock on /api/health every 10 minutes. It sends no data; one always-on free service stays inside
+# Render's monthly free hours. GitHub pauses scheduled workflows after 60 days without repository
+# activity; run it once by hand (Actions -> keep-warm -> Run workflow) to resume.
+name: keep-warm
+on:
+  schedule:
+    - cron: "*/10 0-15 * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: curl -fsS --max-time 90 --retry 2 https://campus-action-agent-back.onrender.com/api/health -o /dev/null -w "%{http_code} in %{time_total}s\n"

@@ -13,6 +13,7 @@ from .extractor import parse_notice_text
 from .dify_client import ExtractionServiceError, extract_notice, extraction_service_status
 from .extraction_access import EXTRACTION_BUDGET, PUBLIC_MODEL_GATE, forwarded_client_ip, local_extraction_allowed
 from .snapshot import calculate_snapshot
+from .advise import advise
 from .end_estimate import estimate_end
 from .layers import calendar_snapshot
 from .layer_import import items_from_candidates, items_from_rules
@@ -44,6 +45,8 @@ def process_post(path: str, payload: object) -> dict:
         return recognize_timetable(payload)
     if path == "/api/v3/estimate-end":
         return estimate_end(payload)
+    if path == "/api/v3/advise":
+        return advise(payload)
     if path == "/api/v3/extract":
         request = {key: value for key, value in payload.items() if key != "mode"}
         mode = payload.get("mode", "rules")
@@ -104,11 +107,11 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "name": "司序·知所先后 API",
                     "message": "Backend is running. /api/v2/extract is a separately configured local model service.",
-                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"],
+                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise"],
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.20", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.21", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -144,7 +147,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"}:
+        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise"}:
             return json_response(self, {"error": "unknown endpoint"}, 404)
         budget_acquired = False
         try:
@@ -161,7 +164,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
             def reject_constant(value: str) -> None:
                 raise ValueError(f"JSON不允许{value}")
             payload = json.loads(raw, parse_constant=reject_constant)
-            model_request = parsed.path == "/api/v2/extract" or (parsed.path in {"/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end"} and isinstance(payload, dict)
+            model_request = parsed.path == "/api/v2/extract" or (parsed.path in {"/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise"} and isinstance(payload, dict)
                                                                 and payload.get("mode", "model" if parsed.path == "/api/v3/timetable" else "rules") in {"model", "image"})
             # The local workbench is trusted; anything else needs the server's access code and stays
             # within the daily caps (extraction_access.PublicModelGate).

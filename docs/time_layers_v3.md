@@ -185,3 +185,13 @@ DeepSeek API Key 与 Dify Key 一样，只在启动本地服务时由用户隐�
 结果只是建议：研墨页导入后，对只有开始时间的点墨问一句“大约几点结束？”，用户改好再保存；不保存就仍是待书。
 
 底色（例行占用）不是必填项：没有底色时不再列为待书，叠墨照常判断。
+
+## 叠墨对策的权衡与请假说明（1.21）
+
+`POST /api/v3/advise`，请求 `{"mode": "rules"|"model", "type", "items": [{"title", "layer", "start", "end", "location"}], "strategies": [{"action", "label", "detail", "recommended"}], "advice", "context"}`，返回 `{"pick", "reason", "note", "basis"}`。
+
+- 对策仍只由规则（strategies.py）生成，每条都能在页面上一键采用和撤销。
+- `rules` 取规则推荐的那条；`model` 让 DeepSeek 按两件事本身权衡，只能回答对策编号，越界、非整数或没有理由都视为失败，本次不采用。
+- 所选对策是“这次不上某门课”时，`note` 是给任课老师的请假说明草稿（模型可改写，缺省用模板），姓名、班级留作【】；司序不会替用户发送。
+- `model` 模式与其他模型功能共用访问口令和每日上限。
+

@@ -73,5 +73,13 @@ class PublicAccessAPITests(APITests):
             status, result = self.request('GET', '/api/health')
             self.assertEqual(result['model_access'], {'code_required': True})
 
+    def test_model_advice_on_a_conflict_is_behind_the_same_gate(self):
+        from tests.test_advise import body as advise_body
+        with patch.dict(os.environ, {**ENV, 'SIXU_MODEL_IP_DAILY_LIMIT': '50', 'SIXU_MODEL_DAILY_LIMIT': '50', 'DEEPSEEK_API_KEY': ''}):
+            status, result = self.request('POST', '/api/v3/advise', advise_body(mode='model'), headers={'Origin': PAGE})
+            self.assertEqual((status, result['code']), (401, 'access_code_required'))
+            status, result = self.request('POST', '/api/v3/advise', advise_body(), headers={'Origin': PAGE})
+            self.assertEqual((status, result['pick'], result['basis']), (200, 0, 'rules'))
+
 
 del APITests

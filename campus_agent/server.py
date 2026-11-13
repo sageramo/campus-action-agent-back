@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .candidates import validate_extraction_input
 from .conflict import detect_conflicts
 from .data_loader import DATA_DIR, dataset_summary, load_conflict_cases, load_multitime_samples, parse_sample_documents
 from .extractor import parse_notice_text
@@ -53,16 +54,13 @@ def process_post(path: str, payload: object) -> dict:
         return advise(payload)
     if path == "/api/v3/extract":
         request = {key: value for key, value in payload.items() if key != "mode"}
+        text, reference_date, _ = validate_extraction_input(request)
         mode = payload.get("mode", "rules")
-        # One-line personal reminders ("提醒我今天要…") become 个人任务 in either mode; the rest is the notice.
         if mode == "rules":
-            if set(request) - {"text", "reference_date", "timezone"}:
-                raise ValueError("候选提取请求包含未知属性")
-            return with_personal(request.get("text"), request.get("reference_date"),
-                                 lambda text: items_from_rules(text, request.get("reference_date")))
+            return with_personal(text, reference_date, lambda rest: items_from_rules(rest, reference_date))
         if mode == "model":
-            return with_personal(request.get("text"), request.get("reference_date"),
-                                 lambda text: items_from_candidates(extract_notice({**request, "text": text}), text, request.get("reference_date")))
+            return with_personal(text, reference_date,
+                                 lambda rest: items_from_candidates(extract_notice({**request, "text": rest}), rest, reference_date))
         raise ValueError("mode 只能是 rules 或 model")
     if path == "/api/parse":
         return parse_notice_text(payload.get("text"), source="user input", reference_date=payload.get("reference_date"), timezone=timezone).to_dict()
@@ -118,7 +116,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.23", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.24", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":

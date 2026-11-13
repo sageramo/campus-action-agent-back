@@ -246,3 +246,24 @@ class AppointmentTests(TestCase):
         self.assertEqual(len(week(snapshot(events=[event()]))['layers']['temporary']), 1)
         with self.assertRaises(ValueError):
             validate_snapshot_v3(snapshot(events=[event(kind='party')]))
+
+
+class CalendarRecoveryTests(TestCase):
+    def test_legacy_invalid_times_remain_visible_but_do_not_prevent_other_work(self):
+        midnight = "2026-11-09T00:00:00+08:00"
+        data = snapshot(
+            tasks=[task(id="legacy", earliest_start_at=midnight, deadline_at=midnight),
+                   task(id="ok", estimate_minutes=30)],
+            events=[event(id="bad-event", start_at=None)],
+        )
+        with self.assertRaises(ValueError):
+            validate_snapshot_v3(data)
+        before = deepcopy(data)
+        result = week(data)
+        self.assertEqual(data, before)
+        self.assertEqual({item["type"] for item in result["undefined"]}, {"event_time_invalid", "task_time_invalid"})
+        self.assertEqual([(item["id"], item["state"]) for item in result["tasks"]],
+                         [("legacy", "time_invalid"), ("ok", "scheduled")])
+        self.assertEqual([item["task_id"] for item in result["layers"]["work"]], ["ok"])
+        self.assertFalse(result["layers"]["temporary"])
+        self.assertTrue(result["validation"]["passed"])

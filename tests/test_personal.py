@@ -54,3 +54,25 @@ class PersonalReminderTests(TestCase):
             result = extract("2026年11月20日19:00 学术讲座。\n提醒我明天要买打印纸", mode="model")
         self.assertEqual(seen["text"], "2026年11月20日19:00 学术讲座")
         self.assertEqual(result["tasks"][0]["title"], "买打印纸")
+
+    def test_personal_activity_uses_the_full_interval_or_explicit_duration(self):
+        for line, title, start, end in [
+            ("提醒我明天9点到11点开社团例会", "开社团例会", "09:00", "11:00"),
+            ("提醒我明天下午三点开会，1小时30分钟", "开会", "15:00", "16:30"),
+        ]:
+            with self.subTest(line=line):
+                result = extract(line)
+                self.assertEqual(result["tasks"], [])
+                (event,) = result["events"]
+                self.assertEqual((event["title"], event["start_at"], event["end_at"]),
+                                 (title, f"2026-11-14T{start}:00+08:00", f"2026-11-14T{end}:00+08:00"))
+
+    def test_midnight_and_uncertain_dates_never_create_a_reversed_work_window(self):
+        (task,) = extract("提醒我今天凌晨0点交作业")["tasks"]
+        self.assertIsNone(task["earliest_start_at"])
+        self.assertEqual(task["deadline_at"], f"{REF}T00:00:00+08:00")
+        (task,) = extract("提醒我2027-01-04 18:00交作品")["tasks"]
+        self.assertEqual(task["deadline_at"], "2027-01-04T18:00:00+08:00")
+        result = extract("提醒我明晚25点交报告")
+        self.assertIsNone(result["tasks"][0]["deadline_at"])
+        self.assertTrue(any("时间待书" in warning for warning in result["warnings"]))

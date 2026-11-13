@@ -57,7 +57,7 @@ def _iso(value: datetime) -> str:
     return value.isoformat()
 
 
-def validate_snapshot_v3(snapshot: object) -> None:
+def validate_snapshot_v3(snapshot: object, *, time_issues: dict[str, str] | None = None) -> None:
     """Raise ValueError for malformed or contradictory data; null fields are allowed."""
     error = next(VALIDATOR.iter_errors(snapshot), None)
     if error is not None:
@@ -89,19 +89,33 @@ def validate_snapshot_v3(snapshot: object) -> None:
     for item in snapshot["free_adjustments"]:
         if _instant(item["end_at"], "end_at") <= _instant(item["start_at"], "start_at"):
             raise ValueError("自由时间调整的结束必须晚于开始")
+    def invalid_time(item: dict, reason: str) -> None:
+        if time_issues is None:
+            raise ValueError(f"「{item['title']}」{reason}")
+        time_issues[item["id"]] = reason
+
     for item in snapshot["events"]:
-        if item["end_at"] and not item["start_at"]:
-            raise ValueError(f"临时占用「{item['title']}」只有结束没有开始")
-        if item["start_at"] and item["end_at"] and _instant(item["end_at"], "end_at") <= _instant(item["start_at"], "start_at"):
-            raise ValueError(f"临时占用「{item['title']}」结束必须晚于开始")
+        try:
+            start = _instant(item["start_at"], "开始") if item["start_at"] else None
+            end = _instant(item["end_at"], "结束") if item["end_at"] else None
+        except ValueError:
+            invalid_time(item, "活动时间无效，请核对起止。")
+            continue
+        if end and not start:
+            invalid_time(item, "只有结束没有开始，请补填开始时间。")
+        elif end and end <= start:
+            invalid_time(item, "结束必须晚于开始，请核对活动起止。")
     for item in snapshot["tasks"]:
-        for field in ("deadline_at", "earliest_start_at"):
-            if item[field]:
-                _instant(item[field], field)
-        if item["deadline_at"] and item["earliest_start_at"] and _instant(item["earliest_start_at"], "earliest") >= _instant(item["deadline_at"], "deadline"):
-            raise ValueError(f"工作「{item['title']}」的最早开始必须早于截止")
-        if item["splittable"] and item["min_block_minutes"] and item["estimate_minutes"] and item["min_block_minutes"] > item["estimate_minutes"]:
-            raise ValueError(f"工作「{item['title']}」的最小连续时长超过预计用时")
+        try:
+            earliest = _instant(item["earliest_start_at"], "最早开始") if item["earliest_start_at"] else None
+            deadline = _instant(item["deadline_at"], "截止") if item["deadline_at"] else None
+        except ValueError:
+            invalid_time(item, "任务时间无效，请核对截止和最早开始。")
+            continue
+        if deadline and earliest and earliest >= deadline:
+            invalid_time(item, "最早开始必须早于截止，请核对任务时间。")
+        elif item["splittable"] and item["min_block_minutes"] and item["estimate_minutes"] and item["min_block_minutes"] > item["estimate_minutes"]:
+            invalid_time(item, "最小连续时长超过预计用时，请核对用时。")
     for item in [*snapshot["routines"], *snapshot["events"], *snapshot["tasks"]]:
         if item["source_id"] is not None and item["source_id"] not in sources:
             raise ValueError(f"「{item['title']}」引用了不存在的来源")
@@ -205,7 +219,8 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - {"snapshot", "range"} or "snapshot" not in payload:
         raise ValueError("请求体需要 snapshot，可选 range")
     snapshot = payload["snapshot"]
-    validate_snapshot_v3(snapshot)
+    time_issues: dict[str, str] = {}
+    validate_snapshot_v3(snapshot, time_issues=time_issues)
     reference = _instant(snapshot["reference_time"], "reference_time")
     first, last = _range(payload, reference)
     view_start, view_end = _at(first, 0), _at(last + timedelta(days=1), 0)
@@ -226,9 +241,13 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
     for task in snapshot["tasks"]:
         entry = {"id": task["id"], "state": None, "estimate_minutes": task["estimate_minutes"], "scheduled_minutes": 0, "assumptions": []}
         states[task["id"]] = entry
-        deadline = _instant(task["deadline_at"], "deadline") if task["deadline_at"] else None
+        deadline = _instant(task["deadline_at"], "deadline") if task["deadline_at"] and task["id"] not in time_issues else None
         if task["status"] != "active":
             entry["state"] = task["status"]
+        elif task["id"] in time_issues:
+            entry["state"] = "time_invalid"
+            undefined.append({"type": "task_time_invalid", "id": task["id"], "title": task["title"],
+                              "reason": time_issues[task["id"]]})
         elif deadline is None:
             entry["state"] = "deadline_undefined"
             undefined.append({"type": "deadline_undefined", "id": task["id"], "title": task["title"], "reason": "截止时间未定义，无法判断何时完成。"})
@@ -262,7 +281,10 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
     for item in snapshot["events"]:
         if item["status"] != "active":
             continue
-        if item["start_at"] and item["end_at"]:
+        if item["id"] in time_issues:
+            undefined.append({"type": "event_time_invalid", "id": item["id"], "title": item["title"],
+                              "reason": time_issues[item["id"]]})
+        elif item["start_at"] and item["end_at"]:
             temporary.append({"id": item["id"], "title": item["title"], "start": _instant(item["start_at"], "start"),
                               "end": _instant(item["end_at"], "end"), "location": item["location"], "layer": item.get("kind", "temporary")})
         elif item["start_at"]:
@@ -328,7 +350,7 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
         if task["splittable"] and task["min_block_minutes"] is None:
             states[task["id"]]["assumptions"].append(f"最小连续时长未填，按{min(DEFAULT_MIN_BLOCK, task['estimate_minutes'])}分钟计。")
     for task in snapshot["tasks"]:
-        if task["status"] == "active" and task["deadline_at"]:
+        if task["status"] == "active" and task["deadline_at"] and task["id"] not in time_issues:
             at = _instant(task["deadline_at"], "deadline")
             if view_start <= at < view_end:
                 markers.append({"type": "deadline", "id": task["id"], "title": task["title"], "at": _iso(at), "state": states[task["id"]]["state"]})

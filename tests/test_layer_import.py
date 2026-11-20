@@ -99,6 +99,14 @@ class RulesImportTests(TestCase):
         self.assertEqual([item['deadline_at'] for item in dual['tasks']],
                          ['2026-11-25T15:30:00+08:00', '2026-11-25T18:00:00+08:00'])
 
+    def test_change_notice_location_drops_the_verb(self):
+        text = '摄影社招新说明会改到2026年11月26日19:00-20:00，地点改为学活305。'
+        imported = items_from_rules(text, '2026-11-25')
+        assemble(imported)
+        self.assertEqual([item['location'] for item in imported['events']], ['学活305'])
+        quotes = [entry['quote'] for entry in imported['events'][0]['evidence'] if entry['field'] == 'location']
+        self.assertEqual(quotes, ['学活305'])
+
 
 def candidate(kind, **fields):
     item = {'title': '事项', 'kind': kind, 'deadline_at': None, 'fixed_start_at': None, 'fixed_end_at': None, 'visit_windows': [],

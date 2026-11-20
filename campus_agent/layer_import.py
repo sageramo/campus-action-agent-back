@@ -19,6 +19,7 @@ EVENT_LABELS = {"活动/比赛时间", "考试时间", "面试时间", "抽签/�
 WINDOW_LABELS = {"办理时间", "选课时间"}
 SENTENCE_END = re.compile(r"[。；;！？!?\n]")
 CLAUSE_END = re.compile(r"[，,。；;！？!?\n]")
+MOVED_TO = re.compile(r"^(?:改为|改至|改到|调整为|调整至|更改为|变更为|移至|迁至|换到|换至)\s*")
 LEADING = re.compile(r"^(?:请(?:于|在)?|于|在|(?:之|以)?前)+")
 EVENT_VERBS = {"举行", "进行", "召开", "开始", "举办"}
 LEADING_EVENT_VERB = re.compile(r"^(?:举行|举办|召开|开展)")
@@ -142,6 +143,9 @@ def items_from_rules(text: str, reference_date: str | None) -> dict[str, Any]:
         title = _title(text, point["source_start"], point["source_end"], label in EVENT_LABELS)
         title, paren_location = _extract_paren_location(title)
         location = next((place for place in parsed["locations"] if place in sentence), None) or paren_location
+        # A change notice says "地点改为学活305"; the place is what follows the verb (still a literal quote).
+        if location:
+            location = MOVED_TO.sub("", location) or location
         if start is None:
             notes.append(f"原文时间「{point['evidence']}」缺少具体日期或时刻，请补填。")
             tasks.append(_task(source, title, None, evidence, notes))

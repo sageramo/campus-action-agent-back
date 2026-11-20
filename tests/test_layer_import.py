@@ -43,6 +43,62 @@ class RulesImportTests(TestCase):
         self.assertEqual(imported['events'], [])
         self.assertEqual([item['deadline_at'] for item in imported['tasks']], [None])
 
+    def test_campus_events_without_juxing_become_events_and_strip_trailing_colons(self):
+        text = '【摄影社招新通知】\n招新说明会时间：2026年11月25日14:30-15:30，地点：学活204。\n说明会报名截止时间：2026年11月25日18:00。'
+        imported = items_from_rules(text, '2026-11-23')
+        assemble(imported)
+        self.assertEqual([(item['title'], item['start_at'], item['end_at'], item['location']) for item in imported['events']],
+                         [('招新说明会时间', '2026-11-25T14:30:00+08:00', '2026-11-25T15:30:00+08:00', '学活204')])
+        self.assertEqual([(item['title'], item['deadline_at']) for item in imported['tasks']],
+                         [('说明会报名截止时间', '2026-11-25T18:00:00+08:00')])
+        start_only = items_from_rules('2026年11月25日14:30 摄影社招新说明会，地点为学活204。', '2026-11-23')
+        assemble(start_only)
+        self.assertEqual([(item['title'], item['start_at'], item['end_at']) for item in start_only['events']],
+                         [('摄影社招新说明会', '2026-11-25T14:30:00+08:00', None)])
+        gala = items_from_rules('2026年11月28日19:00-21:30 迎新晚会，地点：中传礼堂。', '2026-11-23')
+        self.assertEqual(len(gala['events']), 1)
+        self.assertEqual(gala['tasks'], [])
+
+    def test_leading_juxing_and_parenthesized_venue_are_split_cleanly(self):
+        notice = (
+            '【摄影社招新通知】\n'
+            '2026年11月25日14:30-15:30举行摄影社招新说明会（学活204）。\n'
+            '2026年11月25日18:00前提交社团报名表。'
+        )
+        imported = items_from_rules(notice, '2026-11-25')
+        assemble(imported)
+        self.assertEqual(
+            [(item['title'], item['start_at'], item['end_at'], item['location']) for item in imported['events']],
+            [('摄影社招新说明会', '2026-11-25T14:30:00+08:00', '2026-11-25T15:30:00+08:00', '学活204')],
+        )
+        self.assertTrue(any(ev['field'] == 'location' and ev['quote'] == '学活204' for ev in imported['events'][0]['evidence']))
+        self.assertEqual(
+            [(item['title'], item['deadline_at']) for item in imported['tasks']],
+            [('提交社团报名表', '2026-11-25T18:00:00+08:00')],
+        )
+        non_venue = items_from_rules('2026年11月25日14:30-15:30举行摄影社招新说明会（全体新生参加）。', '2026-11-25')
+        assemble(non_venue)
+        self.assertEqual(
+            [(item['title'], item['location']) for item in non_venue['events']],
+            [('摄影社招新说明会（全体新生参加）', None)],
+        )
+
+    def test_comma_separated_em_dash_interval_becomes_event_with_clean_title(self):
+        text = '11月25日（周三）14:30—15:30，摄影社招新说明会，地点：学活204。'
+        imported = items_from_rules(text, '2026-11-25')
+        assemble(imported)
+        self.assertEqual(
+            [(item['title'], item['start_at'], item['end_at'], item['location']) for item in imported['events']],
+            [('摄影社招新说明会', '2026-11-25T14:30:00+08:00', '2026-11-25T15:30:00+08:00', '学活204')],
+        )
+        self.assertEqual(imported['tasks'], [])
+        # Two timed clauses separated by a comma must not leak the second clause's hint into the first.
+        dual = items_from_rules('2026年11月25日14:30—15:30，2026年11月25日18:00前提交报名表。', '2026-11-25')
+        assemble(dual)
+        self.assertEqual(dual['events'], [])
+        self.assertEqual([item['deadline_at'] for item in dual['tasks']],
+                         ['2026-11-25T15:30:00+08:00', '2026-11-25T18:00:00+08:00'])
+
 
 def candidate(kind, **fields):
     item = {'title': '事项', 'kind': kind, 'deadline_at': None, 'fixed_start_at': None, 'fixed_end_at': None, 'visit_windows': [],

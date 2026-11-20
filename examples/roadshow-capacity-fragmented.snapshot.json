@@ -1,0 +1,43 @@
+{
+  "schema_version": 3,
+  "revision": 1,
+  "label": "虚构路演示例：承诺试算B（总量够但连续空档不足）",
+  "timezone": "Asia/Shanghai",
+  "reference_time": "2026-11-25T14:00:00+08:00",
+  "sources": [
+    {
+      "id": "s-roadshow-cap-b",
+      "kind": "synthetic",
+      "text": "【虚构课表】专业选修课 每周三 16:00-18:00 主楼402",
+      "published_at": null
+    }
+  ],
+  "daily_window": [
+    {"start": "12:00", "end": "22:00"},
+    {"start": "12:00", "end": "22:00"},
+    {"start": "12:00", "end": "22:00"},
+    {"start": "12:00", "end": "22:00"},
+    {"start": "12:00", "end": "22:00"},
+    {"start": "12:00", "end": "22:00"},
+    {"start": "12:00", "end": "22:00"}
+  ],
+  "routines_confirmed": true,
+  "routines": [
+    {
+      "id": "r-roadshow-elective",
+      "title": "专业选修课",
+      "weekdays": [3],
+      "start": "16:00",
+      "end": "18:00",
+      "from": "2026-09-07",
+      "until": "2027-01-10",
+      "week_interval": 1,
+      "skip_dates": [],
+      "location": "主楼402",
+      "source_id": "s-roadshow-cap-b"
+    }
+  ],
+  "free_adjustments": [],
+  "events": [],
+  "tasks": []
+}

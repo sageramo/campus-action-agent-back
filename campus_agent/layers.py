@@ -68,6 +68,9 @@ def validate_snapshot_v3(snapshot: object, *, time_issues: dict[str, str] | None
     sources = {item["id"]: item["text"] for item in snapshot["sources"]}
     if len(sources) != len(snapshot["sources"]):
         raise ValueError("来源ID重复")
+    for source in snapshot["sources"]:
+        if source["published_at"] is not None:
+            _instant(source["published_at"], "published_at")
     ids = [item["id"] for key in ("routines", "free_adjustments", "events", "tasks") for item in snapshot[key]]
     if len(ids) != len(set(ids)):
         raise ValueError("例行、调整、临时与工作条目的ID必须互不重复")
@@ -390,8 +393,25 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
             add_conflict("temporary_overlap", one, other, start, end, "两个临时占用时间重叠，只能参加其中之一。")
 
     used_work = [(_instant(entry["start"], "start"), _instant(entry["end"], "end")) for entry in (plan or {"schedule": []})["schedule"]]
-    all_routines = _routine_occurrences(snapshot["routines"], _days(span_start, span_end + timedelta(days=8)))
-    attach_strategies(conflicts, snapshot=snapshot, reference=reference, free=free, work=used_work,
+    strategy_days_set = set(_days(span_start, span_end + timedelta(days=8)))
+    for conflict in conflicts:
+        if conflict["type"] in ("appointment_routine_overlap", "appointment_overlap") and conflict["items"]:
+            mine = conflict["items"][0]
+            if mine.get("start") and mine.get("end"):
+                mine_start = _instant(mine["start"], "start")
+                mine_end = _instant(mine["end"], "end")
+                strategy_days_set.update(_days(max(reference, mine_start - timedelta(days=3)), mine_end + timedelta(days=4)))
+    strategy_days = sorted(strategy_days_set)
+    all_routines = _routine_occurrences(snapshot["routines"], strategy_days)
+    strategy_free = free
+    if free_defined:
+        extra_days = [day for day in strategy_days if day not in set(days)]
+        if extra_days:
+            extra_windows = [(_at(day, _clock(window["start"])), _at(day, _clock(window["end"])))
+                             for day in extra_days if (window := snapshot["daily_window"][day.isoweekday() - 1])]
+            extra_busy = [(item["start"], item["end"]) for item in [*all_routines, *temporary]]
+            strategy_free = _subtract(merge_intervals([*window_only, *extra_windows, *added]), [*extra_busy, *removed])
+    attach_strategies(conflicts, snapshot=snapshot, reference=reference, free=strategy_free, work=used_work,
                       busy=[*all_routines, *temporary])
 
     def output(items: list[dict]) -> list[dict]:

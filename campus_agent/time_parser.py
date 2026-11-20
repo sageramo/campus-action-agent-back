@@ -43,12 +43,15 @@ CLOCK_RE = re.compile(
     rf"|(?:[点时](?P<cn_minute>半|一刻|三刻|\d{{1,2}}分?|[{CN}]{{1,3}}分)?))(?!\d)"
 )
 CLAUSE_RE = re.compile(r"[^，,。；;\n！？!?]+")
+SENTENCE_END_RE = re.compile(r"[。；;\n！？!?]")
 RANGE_RE = re.compile(r"\s*(?:(?P<next>次日|翌日)\s*)?(?:[-—–~～至到])\s*(?:(?P<next_after>次日|翌日)\s*)?$")
 TYPE_HINTS = [
     ("抽签/签到时间", ["抽签", "签到", "入场", "到场"]),
     ("报名截止", ["报名"]),
     ("材料提交", ["提交", "上传", "交到", "交申请表", "交材料"]),
-    ("活动/比赛时间", ["活动", "比赛", "讲座", "举行", "典礼", "班会", "会议", "开幕"]),
+    ("活动/比赛时间", ["活动", "比赛", "讲座", "举行", "典礼", "班会", "会议", "开幕",
+                   "说明会", "宣讲会", "分享会", "交流会", "座谈会", "报告会",
+                   "晚会", "演出", "培训", "仪式", "选拔赛", "初赛", "复赛", "决赛"]),
     ("考试时间", ["考试", "听力", "试音"]),
     ("选课时间", ["选课", "退课", "补选"]),
     ("面试时间", ["面试", "答辩", "汇报"]),
@@ -79,6 +82,35 @@ def infer_time_type(context: str, start: int = 0, end: int = 0) -> tuple[str, fl
     if "截止" in context or "前" in context:
         return "截止时间", 0.7
     return "未分类时间", 0.6
+
+
+def _sentence_context(text: str, abs_start: int, abs_end: int) -> tuple[str, int]:
+    """Expand a timeless-neighboring comma span inside the same sentence without crossing another time clause."""
+    sent_start = max((m.end() for m in SENTENCE_END_RE.finditer(text, 0, abs_start)), default=0)
+    sent_end_match = SENTENCE_END_RE.search(text, abs_end)
+    sent_end = sent_end_match.start() if sent_end_match else len(text)
+    sentence = text[sent_start:sent_end]
+    rel_start, rel_end = abs_start - sent_start, abs_end - sent_start
+    clauses = list(re.finditer(r"[^，,]+", sentence))
+    idx = next((i for i, m in enumerate(clauses) if m.start() <= rel_start and rel_end <= m.end()), None)
+    if idx is None:
+        return sentence, sent_start
+    left = idx
+    while left > 0 and not DATE_RE.search(clauses[left - 1].group()) and not CLOCK_RE.search(clauses[left - 1].group()):
+        left -= 1
+    right = idx
+    while right + 1 < len(clauses) and not DATE_RE.search(clauses[right + 1].group()) and not CLOCK_RE.search(clauses[right + 1].group()):
+        right += 1
+    span_start, span_end = clauses[left].start(), clauses[right].end()
+    return sentence[span_start:span_end], sent_start + span_start
+
+
+def _infer_time_type_in_context(text: str, clause: str, base: int, start: int, end: int) -> tuple[str, float]:
+    label, confidence = infer_time_type(clause, start, end)
+    if label != "未分类时间":
+        return label, confidence
+    context, ctx_base = _sentence_context(text, base + start, base + end)
+    return infer_time_type(context, base + start - ctx_base, base + end - ctx_base)
 
 
 def cn_number(value: str) -> int:
@@ -204,7 +236,7 @@ def extract_time_candidates(
             boundary = dates[index + 1].start() if index + 1 < len(dates) else len(clause)
             clocks = list(CLOCK_RE.finditer(clause, match.end(), boundary))
             if not clocks:
-                label, confidence = infer_time_type(clause, match.start(), match.end())
+                label, confidence = _infer_time_type_in_context(text, clause, base, match.start(), match.end())
                 clause_candidates.append(CandidateTime(label, day.isoformat(), match.group(), confidence, precision="date", timezone=timezone, warnings=note + ["只有日期，尚不能确认具体截止时刻或全天占用。"], source_start=base + match.start(), source_end=base + match.end()))
             else:
                 cursor = 0
@@ -225,7 +257,7 @@ def extract_time_candidates(
                             end_pos = end_clock.end()
                             if end_value <= value:
                                 raise ValueError("区间结束不晚于开始；跨午夜请写明次日或结束日期")
-                        label, confidence = infer_time_type(clause, match.start(), end_pos)
+                        label, confidence = _infer_time_type_in_context(text, clause, base, match.start(), end_pos)
                         clause_candidates.append(CandidateTime(label, value, clause[match.start():end_pos], confidence, end_value=end_value, kind="interval" if end_value else "point", timezone=timezone, warnings=note.copy(), source_start=base + match.start(), source_end=base + end_pos))
                     except (ValueError, KeyError, OverflowError) as exc:
                         warnings.append(f"未采纳时间「{clause[match.start():end_clock.end() if connector else clock.end()]}」：{exc}")
@@ -269,7 +301,7 @@ def extract_time_candidates(
                 warnings.append(f"未采纳时间「{match.group()}」：{exc}")
                 cursor += 2 if connector else 1
                 continue
-            label, confidence = infer_time_type(clause, match.start(), end_pos)
+            label, confidence = _infer_time_type_in_context(text, clause, base, match.start(), end_pos)
             candidates.append(CandidateTime(label, value, clause[match.start():end_pos], confidence, end_value=end_value, kind="interval" if end_value else "point", precision="time", timezone=timezone, warnings=["缺少日期，不能直接排入日历。"], source_start=base + match.start(), source_end=base + end_pos))
             cursor += 2 if connector else 1
 

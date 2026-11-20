@@ -81,5 +81,22 @@ class PublicAccessAPITests(APITests):
             status, result = self.request('POST', '/api/v3/advise', advise_body(), headers={'Origin': PAGE})
             self.assertEqual((status, result['pick'], result['basis']), (200, 0, 'rules'))
 
+    def test_concurrency_rejection_refunds_public_daily_quota(self):
+        from campus_agent.extraction_access import ExtractionBudget
+        gate = PublicModelGate()
+        busy_budget = ExtractionBudget()
+        busy_budget.acquire()
+        with patch.dict(os.environ, {**ENV, 'SIXU_MODEL_IP_DAILY_LIMIT': '1', 'SIXU_MODEL_DAILY_LIMIT': '1', 'DEEPSEEK_API_KEY': ''}), \
+             patch('campus_agent.server.PUBLIC_MODEL_GATE', gate), \
+             patch('campus_agent.server.EXTRACTION_BUDGET', busy_budget):
+            status, result = self.request('POST', '/api/v3/estimate-end', self.body,
+                                          headers={'Origin': PAGE, 'X-Sixu-Access': 'ink-and-paper'})
+            self.assertEqual((status, result['code']), (429, 'model_request_limit'))
+            self.assertEqual((gate.total, gate.by_ip), (0, {}))
+            busy_budget.release()
+            status2, result2 = self.request('POST', '/api/v3/estimate-end', self.body,
+                                            headers={'Origin': PAGE, 'X-Sixu-Access': 'ink-and-paper'})
+            self.assertEqual((status2, result2['code']), (503, 'model_not_configured'))
+
 
 del APITests

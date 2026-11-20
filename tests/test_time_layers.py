@@ -267,3 +267,42 @@ class CalendarRecoveryTests(TestCase):
         self.assertEqual([item["task_id"] for item in result["layers"]["work"]], ["ok"])
         self.assertFalse(result["layers"]["temporary"])
         self.assertTrue(result["validation"]["passed"])
+
+    def test_invalid_source_published_at_is_rejected(self):
+        bad = snapshot(sources=[{"id": "s1", "kind": "pasted_notice", "text": "原文", "published_at": "not-a-dateZ"}])
+        with self.assertRaises(ValueError):
+            validate_snapshot_v3(bad)
+
+    def test_photo_club_roadshow_replay_matches_design_report(self):
+        from campus_agent.layer_import import items_from_rules
+        from tests.test_strategies import apply
+
+        notice = '【摄影社招新通知】\n招新说明会于2026年11月25日14:30-15:30举行，地点为学活204。\n请于2026年11月25日18:00前提交摄影社报名表。'
+        imported = items_from_rules(notice, '2026-11-23')
+        data = snapshot(
+            reference_time='2026-11-25T14:00:00+08:00',
+            daily_window=[{'start': '14:00', 'end': '18:00'}] * 7,
+            sources=[imported['source']],
+            routines=[routine(id='r-major', title='专业课', weekdays=[3], start='14:00', end='15:00', location='主楼301')],
+            events=imported['events'],
+            tasks=imported['tasks'],
+        )
+        span = {'from': '2026-11-23', 'to': '2026-11-29'}
+        pending = week(data, **span)
+        self.assertEqual(pending['tasks'][0]['state'], 'estimate_undefined')
+        self.assertEqual(len(pending['conflicts']), 1)
+        self.assertEqual(pending['conflicts'][0]['minutes'], 30)
+
+        data['tasks'][0]['estimate_minutes'] = 30
+        before = week(data, **span)
+        self.assertEqual(spans(before['layers']['work']), [('15:30', '16:00', '2026-11-25')])
+        wed_free_before = [item for item in before['layers']['free'] if item['start'].startswith('2026-11-25')]
+        self.assertEqual(spans(wed_free_before), [('15:30', '18:00', '2026-11-25')])  # 150m before 30m work -> 120m left
+
+        keep_course = next(item for item in before['conflicts'][0]['strategies'] if item['action'] == 'cancel_event')
+        after = week(apply(data, keep_course), **span)
+        self.assertEqual(after['status'], 'clear')
+        self.assertEqual(after['conflicts'], [])
+        self.assertEqual(spans(after['layers']['work']), [('15:00', '15:30', '2026-11-25')])
+        wed_free_after = [item for item in after['layers']['free'] if item['start'].startswith('2026-11-25')]
+        self.assertEqual(spans(wed_free_after), [('15:00', '18:00', '2026-11-25')])  # 180m before 30m work -> 150m left

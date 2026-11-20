@@ -12,6 +12,7 @@ from typing import Any
 
 from .candidates import validate_extraction_input
 from .extractor import parse_notice_text
+from .time_parser import CLOCK_RE, DATE_RE
 from .time_utils import parse_dt
 
 EVENT_LABELS = {"活动/比赛时间", "考试时间", "面试时间", "抽签/签到时间"}
@@ -20,6 +21,15 @@ SENTENCE_END = re.compile(r"[。；;！？!?\n]")
 CLAUSE_END = re.compile(r"[，,。；;！？!?\n]")
 LEADING = re.compile(r"^(?:请(?:于|在)?|于|在|(?:之|以)?前)+")
 EVENT_VERBS = {"举行", "进行", "召开", "开始", "举办"}
+LEADING_EVENT_VERB = re.compile(r"^(?:举行|举办|召开|开展)")
+LOCATION_CLAUSE_PREFIX = re.compile(r"^(?:地点|地址|教室|会议室|办公室)[：:\s为在]")
+PAREN_LOCATION_RE = re.compile(r"[（(]\s*(?:(?:地点|地址)[：:\s]*)?([^（）()，,。；;\n！？!?]{2,24})\s*[）)]\s*$")
+VENUE_HINT_RE = re.compile(
+    r"(?:楼|室|厅|馆|堂|场|操场|广场|学活|教学楼|实验楼|办公楼|宿舍|公寓|食堂|"
+    r"会议|中心|校区|礼堂|剧场|阶梯|教室|机房|实验室|腾讯会议|钉钉|飞书|线上|"
+    r"[一二三四五六七八九十\d]+教)"
+)
+NON_LOCATION_PAREN_RE = re.compile(r"待定|未定|暂定|参加|必到|自愿|选填|截止|提交|电子版|纸质版|PDF|含|约|周一|周二|周三|周四|周五|周六|周日|星期")
 FIELD_MAP = {"title": "title", "deadline_at": "deadline_at", "fixed_start_at": "start_at", "fixed_end_at": "end_at",
              "location": "location", "materials": "materials"}
 
@@ -56,16 +66,66 @@ def _sentence(text: str, start: int, end: int) -> str:
     return text[left:right.start() if right else len(text)].strip()
 
 
+def _clean_event_title(text: str, event: bool) -> str:
+    if event:
+        stripped = LEADING_EVENT_VERB.sub("", text).strip("：: ")
+        if len(stripped) >= 2:
+            return stripped
+    return text
+
+
+def _extract_paren_location(title: str) -> tuple[str, str | None]:
+    match = PAREN_LOCATION_RE.search(title)
+    if not match:
+        return title, None
+    candidate = match.group(1).strip()
+    explicit = bool(re.match(r"^[（(]\s*(?:地点|地址)[：:\s]", match.group(0)))
+    if not explicit and (NON_LOCATION_PAREN_RE.search(candidate) or not VENUE_HINT_RE.search(candidate)):
+        return title, None
+    cleaned = title[:match.start()].strip("：: ")
+    if len(cleaned) < 2:
+        return title, None
+    return cleaned, candidate
+
+
+def _adjacent_clause_title(text: str, start: int, end: int, event: bool) -> str | None:
+    sent_left = max((m.end() for m in SENTENCE_END.finditer(text, 0, start)), default=0)
+    sent_right_match = SENTENCE_END.search(text, end)
+    sent_right = sent_right_match.start() if sent_right_match else len(text)
+    sentence = text[sent_left:sent_right]
+    rel_start, rel_end = start - sent_left, end - sent_left
+    clauses = list(re.finditer(r"[^，,]+", sentence))
+    idx = next((i for i, m in enumerate(clauses) if m.start() <= rel_start and rel_end <= m.end()), None)
+    if idx is None:
+        return None
+    for step in (1, -1):
+        cursor = idx + step
+        while 0 <= cursor < len(clauses):
+            piece = clauses[cursor].group().strip("：: ")
+            if DATE_RE.search(piece) or CLOCK_RE.search(piece):
+                break
+            if piece and not LOCATION_CLAUSE_PREFIX.match(piece):
+                candidate = _clean_event_title(LEADING.sub("", piece).strip("：: "), event)
+                if len(candidate) >= 2:
+                    return candidate
+            cursor += step
+    return None
+
+
 def _title(text: str, start: int, end: int, event: bool) -> str:
     """'请于{时间}前提交课程报告' -> '提交课程报告'; '讲座于{时间}举行' -> '参加讲座'."""
     left = max((match.end() for match in CLAUSE_END.finditer(text, 0, start)), default=0)
     right_match = CLAUSE_END.search(text, end)
-    before = re.sub(r"(?:于|在)$", "", LEADING.sub("", text[left:start].strip()))
-    after = LEADING.sub("", text[end:right_match.start() if right_match else len(text)].strip())
+    before = re.sub(r"(?:于|在)$", "", LEADING.sub("", text[left:start].strip())).rstrip("：: ")
+    after = LEADING.sub("", text[end:right_match.start() if right_match else len(text)].strip()).lstrip("：: ")
     if event and after in EVENT_VERBS and before:
         return f"参加{before}"
-    title = f"{before}{after}".strip()
-    return title if len(title) >= 2 else _sentence(text, start, end)
+    if event and not before:
+        after = _clean_event_title(after, event)
+    title = f"{before}{after}".strip("：: ")
+    if len(title) >= 2:
+        return title
+    return _adjacent_clause_title(text, start, end, event) or _sentence(text, start, end)
 
 
 def items_from_rules(text: str, reference_date: str | None) -> dict[str, Any]:
@@ -80,7 +140,8 @@ def items_from_rules(text: str, reference_date: str | None) -> dict[str, Any]:
         start, end = _iso(point["value"]) if point["precision"] == "datetime" else None, _iso(point["end_value"])
         label = point["time_type"]
         title = _title(text, point["source_start"], point["source_end"], label in EVENT_LABELS)
-        location = next((place for place in parsed["locations"] if place in sentence), None)
+        title, paren_location = _extract_paren_location(title)
+        location = next((place for place in parsed["locations"] if place in sentence), None) or paren_location
         if start is None:
             notes.append(f"原文时间「{point['evidence']}」缺少具体日期或时刻，请补填。")
             tasks.append(_task(source, title, None, evidence, notes))

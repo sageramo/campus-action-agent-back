@@ -50,7 +50,7 @@
 ```
 
 - `daily_window`：`null` 表示作息范围未定义，此时自由时间整体“未定义”，不生成工作时间。时刻为 `HH:MM`，结束可写 `24:00`，必须晚于开始。
-- `routines_confirmed`：`false` 表示还没填课表等例行占用（也没确认“没有”）。此时仍会推算自由时间，但标注“未扣除例行占用，可能偏多”。
+- `routines_confirmed`：`false` 表示还没填课表等例行占用（也没确认“没有”）。此时仍会推算自由时间与冲突（`definition.routines` 标记为 `unconfirmed`，但不列入 `undefined` 待书阻塞项）。
 - `routines`：`weekdays` 为 1—7（周一到周日）；`week_interval` 为 1（每周）或 2（单双周，以 `from` 所在周为第1周）；`until` 可为 null；`skip_dates` 用于放假、调课。
 - `events`：可选 `kind`：`temporary`（默认，点墨）或 `appointment`（约定，属于落笔，后端1.17起）。约定同样占用时间，与例行、临时、其他约定重叠都算冲突。`start_at`、`end_at` 都可为 null。有起止才占用时间；只有开始显示为“结束未定义”的标记；都没有是“时间待定”。`status` 为 `active` 或 `cancelled`。
 - `tasks`：`estimate_minutes` 就是原来的“还需要多少分钟”，改名“预计用时”且可选。`priority`（0—100）可选，空时按 50 计并在结果中说明。`splittable` 默认 `true`；可拆时 `min_block_minutes` 为空则按 30 分钟（预计用时更短时按预计用时）计。`status` 为 `active`、`completed`、`cancelled`。
@@ -151,14 +151,14 @@
 - 健康接口新增 `timetable_model: {"configured": true|false}`，能力列表新增 `timetable_v3`。
 - **截图模式（后端1.15，能力 `timetable_image_v3`）**：`{"mode": "image", "image": "data:image/jpeg;base64,…", "term_start": "…", "periods": {…}}`。DeepSeek（`deepseek-flash`，图片放在用户消息中）按格子的列和行读出星期、节次和格子文字，并抄下截图侧边的节次时间。程序把每格写成“周一 第3-4节 格子原文”的转写作为 `source.text`，再照常换算；响应多一个 `periods_seen`。填了 `periods` 时以填写的为准；没填时用截图上读到的并在提醒中说明。截图只发送给模型、不保存；只允许本机访问，请求体上限15MB。
 
-## 可以交给大模型的其他环节（尚未实现）
+## 可以交给大模型的其他环节（说明）
 
 冲突、容量和工作时间必须由程序精确计算；大模型只适合“给建议，用户采纳后才写入”：
 
-1. **预计用时建议**：按事项名称和原文给出建议用时与理由，用户一键采纳或修改。
-2. **一句话添加**：“周三下午三点到五点面试”转成一条临时占用。
+1. **预计用时建议**（尚未实现模型版；网页端已实现按历史实际耗时分类估时 `estimate-memory.js`）。
+2. **一句话添加**（已于 1.22 通过规则引擎 `personal.py` 实现，见文末）。
 
-DeepSeek API Key 与 Dify Key 一样，只在启动本地服务时由用户隐藏输入，服务停止即清除，不写入文件、前端或聊天。
+公网开放模型功能见仓库根目录 `README.md` 的 `SIXU_MODEL_ACCESS_CODE` 与每日额度说明；本机联调时 DeepSeek API Key 与 Dify Key 仍通过启动脚本隐藏输入，不写入文件、前端或聊天。
 
 ## 叠墨对策（1.18）
 
@@ -194,4 +194,11 @@ DeepSeek API Key 与 Dify Key 一样，只在启动本地服务时由用户隐�
 - `rules` 取规则推荐的那条；`model` 让 DeepSeek 按两件事本身权衡，只能回答对策编号，越界、非整数或没有理由都视为失败，本次不采用。
 - 所选对策是“这次不上某门课”时，`note` 是给任课老师的请假说明草稿（模型可改写，缺省用模板），姓名、班级留作【】；司序不会替用户发送。
 - `model` 模式与其他模型功能共用访问口令和每日上限。
+
+## 个人提醒、只读聊天与时间容错（1.22–1.25）
+
+- **一句话个人提醒（1.22，`personal_reminders_v1`）**：`POST /api/v3/extract` 前置调用 `personal.with_personal`，识别“提醒我/帮我记/记得/别忘了”或短句口语日期，将带起止或外出时刻的句子转为 `appointment`（约定），其余转为带 `"个人任务"` 标记的 `task`，非个人句子再交规则或 Dify 提取。1.25 修复“前提交”截止误判及混合输入引文分隔符保真。
+- **研磨只读聊天（1.23，`agenda_chat_v1`）**：`POST /api/v3/chat`（仅 `mode: "model"`），接收 1–9 条交替对话，调用 DeepSeek 返回 `{"reply": "…"}`；只读，不读取清单、不写入任务。
+- **单条时间容错（1.24，`agenda_time_validation_v1`）**：`/api/v3/calendar` 将单条活动或任务的矛盾时间（如结束早于开始、最早开始晚于截止、最小连续时长超过预计用时）转入 `undefined`（`event_time_invalid` / `task_time_invalid`）而非整份快照 400 失败。
+- **路演链条修补（1.25）**：规则提取补齐说明会/分享会/晚会等校园活动词并清理冒号标题；`add_free` 避开已有 `free_adjustments`；跨周约定叠墨补齐 `±3 天` 改约空档；公网并发 429 退还 `PublicModelGate` 误扣额度；`validate_snapshot_v3` 校验 `sources[].published_at`。
 

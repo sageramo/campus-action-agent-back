@@ -86,6 +86,9 @@ def _extra_free(snapshot: dict, deadline: datetime, minutes: int, reference: dat
     """A block of `minutes` right after (or before) a day's window, before the deadline and clear of occupancy."""
     zone = get_zone()
     windows = snapshot["daily_window"] or []
+    # Avoid existing manual free adjustments: a `remove` overrides `add`, and overlapping an `add` adds less than `minutes`.
+    adjustments = [(_instant(item["start_at"], "start"), _instant(item["end_at"], "end")) for item in snapshot.get("free_adjustments", [])]
+    blocked = [*busy, *adjustments]
     day = deadline.astimezone(zone).date()
     for back in range(ADD_FREE_SEARCH_DAYS + 1):
         current = day - timedelta(days=back)
@@ -99,7 +102,7 @@ def _extra_free(snapshot: dict, deadline: datetime, minutes: int, reference: dat
             start, end = (edge, edge + timedelta(minutes=minutes)) if direction == 1 else (edge - timedelta(minutes=minutes), edge)
             if start < midnight or end > midnight + timedelta(days=1) or start < reference or end > deadline:
                 continue
-            if any(busy_start < end and busy_end > start for busy_start, busy_end in busy):
+            if any(busy_start < end and busy_end > start for busy_start, busy_end in blocked):
                 continue
             return start, end
     return None

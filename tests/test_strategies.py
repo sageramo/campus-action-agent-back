@@ -84,3 +84,40 @@ class StrategyTests(TestCase):
         best = week(data)['conflicts'][0]['strategies'][0]
         self.assertEqual(best['params']['patch'], {'status': 'completed'})
         self.assertEqual(week(apply(data, best))['conflicts'], [])
+
+    def test_add_free_skips_removed_adjustments_and_only_offers_effective_slots(self):
+        data = snapshot(
+            reference_time='2026-11-25T14:00:00+08:00',
+            daily_window=[{'start': '14:00', 'end': '16:00'}] * 7,
+            free_adjustments=[{'id': 'rm1', 'kind': 'remove', 'start_at': '2026-11-25T16:00:00+08:00',
+                               'end_at': '2026-11-25T18:00:00+08:00', 'note': '晚饭与休息'}],
+            tasks=[task(id='t1', title='提交报名表', deadline_at='2026-11-25T18:00:00+08:00', estimate_minutes=150)],
+        )
+        result = week(data, **{'from': '2026-11-23', 'to': '2026-11-29'})
+        conflict = result['conflicts'][0]
+        self.assertFalse(any(item['action'] == 'add_free' for item in conflict['strategies']))
+        # When an earlier day's edge is open, add_free chooses that unblocked edge and truly resolves the shortage.
+        data_earlier = snapshot(
+            reference_time='2026-11-24T14:00:00+08:00',
+            daily_window=[{'start': '14:00', 'end': '16:00'}] * 7,
+            free_adjustments=[{'id': 'rm1', 'kind': 'remove', 'start_at': '2026-11-25T16:00:00+08:00',
+                               'end_at': '2026-11-25T18:00:00+08:00', 'note': '晚饭与休息'}],
+            tasks=[task(id='t1', title='提交报名表', deadline_at='2026-11-25T18:00:00+08:00', estimate_minutes=270)],
+        )
+        conflict2 = week(data_earlier, **{'from': '2026-11-23', 'to': '2026-11-29'})['conflicts'][0]
+        add = next(item for item in conflict2['strategies'] if item['action'] == 'add_free')
+        self.assertEqual(week(apply(data_earlier, add), **{'from': '2026-11-23', 'to': '2026-11-29'})['conflicts'], [])
+
+    def test_cross_week_appointment_conflict_gets_move_slots_and_clears_when_applied(self):
+        data = snapshot(
+            reference_time='2026-11-23T08:00:00+08:00',
+            routines=[routine(id='r1', title='周六选修课', weekdays=[6], start='14:00', end='16:00')],
+            events=[event(id='a1', kind='appointment', title='下周六约拍',
+                          start_at='2026-12-05T14:30:00+08:00', end_at='2026-12-05T15:30:00+08:00')],
+        )
+        conflict = week(data, **{'from': '2026-11-23', 'to': '2026-11-29'})['conflicts'][0]
+        moves = [item for item in conflict['strategies'] if item['action'] == 'move_event']
+        self.assertEqual(len(moves), 2)
+        self.assertTrue(moves[0]['recommended'])
+        for move in moves:
+            self.assertEqual(week(apply(data, move), **{'from': '2026-11-23', 'to': '2026-11-29'})['conflicts'], [])

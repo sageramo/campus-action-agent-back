@@ -39,7 +39,7 @@ class PersonalReminderTests(TestCase):
         (event,) = extract("11月20日19:00 学术讲座")["events"]
         self.assertNotIn("个人任务", event["notes"])
         result = extract("【学生会通知】\n2026年11月20日19:00 学术讲座（主楼报告厅）。\n提醒我明天要买打印纸")
-        self.assertEqual([item["title"] for item in result["events"]], ["学术讲座（主楼报告厅）"])
+        self.assertEqual([(item["title"], item["location"]) for item in result["events"]], [("学术讲座", "主楼报告厅")])
         self.assertEqual([item["title"] for item in result["tasks"]], ["买打印纸"])
         ids = {item["source_id"] for item in [*result["events"], *result["tasks"]]}
         self.assertEqual(ids, {result["source"]["id"]})
@@ -76,3 +76,44 @@ class PersonalReminderTests(TestCase):
         result = extract("提醒我明晚25点交报告")
         self.assertIsNone(result["tasks"][0]["deadline_at"])
         self.assertTrue(any("时间待书" in warning for warning in result["warnings"]))
+
+    def test_before_submit_is_a_deadline_without_stray_prefix(self):
+        result = process_post("/api/v3/extract", {"text": "提醒我周三18:00前提交摄影社报名表，预计30分钟",
+                                                  "reference_date": "2026-11-23", "mode": "rules"})
+        (task,) = result["tasks"]
+        self.assertEqual((task["title"], task["deadline_at"], task["earliest_start_at"], task["estimate_minutes"]),
+                         ("提交摄影社报名表", "2026-11-25T18:00:00+08:00", None, 30))
+
+    def test_mixed_multiline_notice_preserves_original_separators_for_evidence(self):
+        from campus_agent.layers import validate_snapshot_v3
+        from campus_agent.personal import with_personal
+
+        original = "提醒我今天写实验报告\n招新说明会于2026年11月25日14:30-15:30举行\n地点为学活204"
+
+        def fake_extract(rest):
+            return {
+                "events": [{"id": "e1", "title": "参加招新说明会", "start_at": "2026-11-25T14:30:00+08:00",
+                            "end_at": "2026-11-25T15:30:00+08:00", "location": "学活204", "status": "active",
+                            "source_id": "s-inner", "notes": [],
+                            "evidence": [{"field": "title", "origin": "source_text", "source_id": "s-inner", "quote": rest}]}],
+                "tasks": [], "warnings": [], "mode": "model",
+            }
+
+        imported = with_personal(original, "2026-11-25", fake_extract)
+        self.assertEqual(imported["events"][0]["evidence"][0]["quote"], "招新说明会于2026年11月25日14:30-15:30举行\n地点为学活204")
+        validate_snapshot_v3({
+            "schema_version": 3, "revision": 1, "timezone": "Asia/Shanghai", "reference_time": "2026-11-25T14:00:00+08:00",
+            "sources": [imported["source"]], "daily_window": [{"start": "14:00", "end": "18:00"}] * 7,
+            "routines_confirmed": True, "routines": [], "free_adjustments": [],
+            "events": imported["events"], "tasks": imported["tasks"],
+        })
+        # When a personal line sits in the middle, quotes spanning the gap are filtered instead of failing v3 validation.
+        sandwiched = "2026年11月25日14:30-15:30举行招新说明会\n提醒我今天写实验报告\n地点为学活204"
+        imported2 = with_personal(sandwiched, "2026-11-25", fake_extract)
+        self.assertEqual(imported2["events"][0]["evidence"], [])
+        validate_snapshot_v3({
+            "schema_version": 3, "revision": 1, "timezone": "Asia/Shanghai", "reference_time": "2026-11-25T14:00:00+08:00",
+            "sources": [imported2["source"]], "daily_window": [{"start": "14:00", "end": "18:00"}] * 7,
+            "routines_confirmed": True, "routines": [], "free_adjustments": [],
+            "events": imported2["events"], "tasks": imported2["tasks"],
+        })

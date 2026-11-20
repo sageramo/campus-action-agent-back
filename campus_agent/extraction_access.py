@@ -113,6 +113,17 @@ class PublicModelGate:
             self.by_ip[client_ip] = self.by_ip.get(client_ip, 0) + 1
             return None
 
+    def refund(self, client_ip: str) -> None:
+        """Undo a daily-cap debit when the request is rejected before reaching any model."""
+        with self.lock:
+            if self.total > 0:
+                self.total -= 1
+            current = self.by_ip.get(client_ip, 0)
+            if current > 1:
+                self.by_ip[client_ip] = current - 1
+            elif current == 1:
+                self.by_ip.pop(client_ip, None)
+
     def status(self) -> dict[str, bool]:
         return {"code_required": self.configured()}
 

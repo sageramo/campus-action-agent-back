@@ -27,7 +27,7 @@ DATE = re.compile(r"(?P<rel>大后天|后天|明天|明早|明晚|今天|今日|
                   r"|(?<!\d)(?P<iy>\d{4})-(?P<im>\d{1,2})-(?P<id>\d{1,2})(?!\d)"
                   r"|(?:(?:(?P<y>\d{4})年\s*)?(?P<m>\d{1,2})月(?P<d>\d{1,2})[日号])"
                   r"|(?<![\d年月])(?P<dd>\d{1,2})[号日](?![\d楼室馆门线房])")
-BEFORE = re.compile(r"\s*(?:(?:之|以)?前(?!端|台|往|进|期|提|几)|截止|为止)")
+BEFORE = re.compile(r"\s*(?:(?:之|以)?前(?!端|台|往|进|期|几|提(?![交供出醒报]))|截止|为止)")
 NUMBER = rf"(?:\d+(?:\.\d+)?|[{CN}]{{1,3}})"
 DURATION = re.compile(
     rf"(?<![\d.点:：-])(?:半\s*(?:个\s*)?小时"
@@ -197,18 +197,36 @@ def personal_item(sentence: str, today: date, source_id: str, lone: bool = False
 def split_personal(text: str, reference_date: str | None, source_id: str) -> tuple[list[dict], list[dict], str]:
     """Personal events and tasks, plus the text left for the notice extractor."""
     today = _today(reference_date)
-    events, tasks, rest = [], [], []
-    sentences = [sentence.strip() for sentence in SPLIT.split(text) if sentence.strip()]
-    lone = len(sentences) == 1 and len(sentences[0]) <= 50
-    for sentence in sentences:
+    events, tasks = [], []
+    spans: list[tuple[int, int, str]] = []
+    cursor = 0
+    for match in SPLIT.finditer(text):
+        segment = text[cursor:match.start()].strip()
+        if segment:
+            start = text.index(segment, cursor)
+            spans.append((start, start + len(segment), segment))
+        cursor = match.end()
+    tail = text[cursor:].strip()
+    if tail:
+        start = text.index(tail, cursor)
+        spans.append((start, start + len(tail), tail))
+    lone = len(spans) == 1 and len(spans[0][2]) <= 50
+    kept: list[tuple[int, int, str, int]] = []
+    for index, (start, end, sentence) in enumerate(spans):
         found = personal_item(sentence, today, source_id, lone)
         if found is None:
-            rest.append(sentence)
+            kept.append((start, end, sentence, index))
         elif found[0] == "event":
             events.append(found[1])
         else:
             tasks.append(found[1])
-    return events, tasks, "。".join(rest).strip()
+    parts: list[str] = []
+    for pos, (start, end, sentence, index) in enumerate(kept):
+        if pos > 0:
+            _, prev_end, _, prev_index = kept[pos - 1]
+            parts.append(text[prev_end:start] if index == prev_index + 1 else "\n")
+        parts.append(sentence)
+    return events, tasks, "".join(parts).strip()
 
 
 def with_personal(text: str, reference_date: str | None, extract) -> dict[str, Any]:
@@ -220,8 +238,13 @@ def with_personal(text: str, reference_date: str | None, extract) -> dict[str, A
     result = extract(rest) if rest else {"events": [], "tasks": [], "warnings": [], "mode": "rules"}
     for item in [*result["events"], *result["tasks"]]:
         item["source_id"] = source["id"]
+        valid_evidence = []
         for quote in item.get("evidence", []):
             quote["source_id"] = source["id"]
+            if quote.get("origin") == "source_text" and quote.get("quote") and quote["quote"] not in source["text"]:
+                continue
+            valid_evidence.append(quote)
+        item["evidence"] = valid_evidence
     result["warnings"] = list(result["warnings"]) + [
         f"「{item['title']}」{note}" for item in [*events, *tasks] for note in item["notes"]
         if note.startswith(("时间待书", "预计用时有歧义"))

@@ -24,6 +24,7 @@ from .timetable import recognize_timetable
 from .deepseek_client import deepseek_status
 from .planner import plan_snapshot
 from .time_utils import DATE_ONLY
+from . import __version__
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,7 +92,7 @@ def json_response(handler: BaseHTTPRequestHandler, data: object, status: int = 2
 
 
 class CampusAgentHandler(BaseHTTPRequestHandler):
-    server_version = "Sixu/1.17"
+    server_version = f"Sixu/{__version__}"
 
     def log_message(self, fmt: str, *args: object) -> None:
         print("[server]", self.address_string(), "-", fmt % args)
@@ -116,7 +117,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": "1.24", "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": __version__, "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -173,15 +174,19 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                                                                 and payload.get("mode", "model" if parsed.path == "/api/v3/timetable" else "rules") in {"model", "image"})
             # The local workbench is trusted; anything else needs the server's access code and stays
             # within the daily caps (extraction_access.PublicModelGate).
+            public_client = None
             if model_request and not local_extraction_allowed(self.client_address[0], self.headers.get("Origin")):
                 client = forwarded_client_ip(self.client_address[0], self.headers.get("X-Forwarded-For"))
                 refused = PUBLIC_MODEL_GATE.check(client, self.headers.get("Origin"), self.headers.get("X-Sixu-Access"))
                 if refused:
                     message, status, code = refused
                     return json_response(self, {"error": message, "code": code}, status)
+                public_client = client
             if model_request:
                 budget_error = EXTRACTION_BUDGET.acquire()
                 if budget_error:
+                    if public_client is not None:
+                        PUBLIC_MODEL_GATE.refund(public_client)
                     return json_response(self, {"error": budget_error, "code": "model_request_limit"}, 429)
                 budget_acquired = True
             result = process_post(parsed.path, payload)

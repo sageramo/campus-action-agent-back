@@ -1,0 +1,60 @@
+{
+  "schema_version": 3,
+  "revision": 1,
+  "label": "虚构路演示例：承诺试算A（时长总量不足）",
+  "timezone": "Asia/Shanghai",
+  "reference_time": "2026-11-25T14:00:00+08:00",
+  "sources": [
+    {
+      "id": "s-roadshow-cap-a",
+      "kind": "synthetic",
+      "text": "【虚构课表】影视鉴赏 每周三 15:40-17:00 影视楼1层",
+      "published_at": null
+    }
+  ],
+  "daily_window": [
+    {"start": "14:00", "end": "17:00"},
+    {"start": "14:00", "end": "17:00"},
+    {"start": "14:00", "end": "17:00"},
+    {"start": "14:00", "end": "17:00"},
+    {"start": "14:00", "end": "17:00"},
+    {"start": "14:00", "end": "17:00"},
+    {"start": "14:00", "end": "17:00"}
+  ],
+  "routines_confirmed": true,
+  "routines": [
+    {
+      "id": "r-roadshow-film",
+      "title": "影视鉴赏",
+      "weekdays": [3],
+      "start": "15:40",
+      "end": "17:00",
+      "from": "2026-09-07",
+      "until": "2027-01-10",
+      "week_interval": 1,
+      "skip_dates": [],
+      "location": "影视楼1层",
+      "source_id": "s-roadshow-cap-a"
+    }
+  ],
+  "free_adjustments": [],
+  "events": [],
+  "tasks": [
+    {
+      "id": "t-roadshow-report",
+      "title": "写实验报告",
+      "deadline_at": "2026-11-25T23:59:00+08:00",
+      "estimate_minutes": 30,
+      "splittable": true,
+      "min_block_minutes": null,
+      "earliest_start_at": "2026-11-25T00:00:00+08:00",
+      "priority": null,
+      "status": "active",
+      "location": null,
+      "materials": [],
+      "source_id": null,
+      "evidence": [],
+      "notes": ["个人任务"]
+    }
+  ]
+}

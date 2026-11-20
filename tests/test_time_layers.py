@@ -182,8 +182,23 @@ class WorkTimeTests(TestCase):
         self.assertEqual(states, {'a': 'estimate_undefined', 'b': 'deadline_undefined', 'c': 'overdue', 'd': 'beyond_horizon', 'e': 'completed'})
         self.assertTrue(any(item['type'] == 'overdue' for item in result['conflicts']))
         undefined = {item['type'] for item in result['undefined']}
-        self.assertTrue({'estimate_undefined', 'deadline_undefined', 'beyond_horizon'} <= undefined)
+        self.assertTrue({'deadline_undefined', 'beyond_horizon'} <= undefined)
+        self.assertNotIn('estimate_undefined', undefined)
         self.assertTrue(any(marker['id'] == 'a' and marker['type'] == 'deadline' for marker in result['markers']))
+
+    def test_missing_estimate_stays_clear_with_deadline_marker_and_no_pending_item(self):
+        data = snapshot(tasks=[task(id='a', estimate_minutes=None)])
+        result = week(data)
+        self.assertEqual(result['status'], 'clear')
+        self.assertEqual(result['undefined'], [])
+        self.assertEqual(result['layers']['work'], [])
+        self.assertEqual(result['tasks'][0]['state'], 'estimate_undefined')
+        self.assertEqual([(m['id'], m['type']) for m in result['markers']], [('a', 'deadline')])
+        # Optionally adding an estimate later still schedules the task cleanly.
+        data['tasks'][0]['estimate_minutes'] = 30
+        scheduled = week(data)
+        self.assertEqual(scheduled['tasks'][0]['state'], 'scheduled')
+        self.assertEqual(len(scheduled['layers']['work']), 1)
 
     def test_work_never_starts_before_the_reference_time(self):
         result = week(snapshot(reference_time='2026-11-09T20:00:00+08:00', tasks=[task(estimate_minutes=30)]))

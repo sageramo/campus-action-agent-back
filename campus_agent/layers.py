@@ -259,8 +259,9 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
             conflicts.append({"type": "overdue", "layers": ["work"], "items": [{"layer": "work", "id": task["id"], "title": task["title"]}],
                               "start": None, "end": _iso(deadline), "minutes": None, "reason": "截止已过，事项仍未完成；请标记完成、取消或修改截止。"})
         elif task["estimate_minutes"] is None:
+            # Missing estimate is optional: keep state='estimate_undefined' for client compatibility
+            # and still emit the deadline marker, without flagging it as 待书 (undefined).
             entry["state"] = "estimate_undefined"
-            undefined.append({"type": "estimate_undefined", "id": task["id"], "title": task["title"], "reason": "预计用时未定义，只显示截止，不划工作时间。"})
         elif deadline > limit:
             entry["state"] = "beyond_horizon"
             undefined.append({"type": "beyond_horizon", "id": task["id"], "title": task["title"], "reason": f"截止超出{MAX_HORIZON_DAYS}天排程范围，临近时再安排。"})

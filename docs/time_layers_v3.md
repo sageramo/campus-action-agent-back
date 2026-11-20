@@ -103,7 +103,7 @@
 
 每个临时占用都在它自己的日期上检查与例行占用、与其他临时占用的冲突，即使不在当前显示的这一周（后端1.14起）；例行占用之间的重叠每周重复，只在显示范围内列出。自由时间与其他层不算冲突：它本来就是扣除①④后的剩余。工作时间只放在自由时间里，并用 v2 的独立校验器核对（不重叠、不越过截止、用时准确、连续块）。能排的先排，排不下的单独报 `work_shortage`，不会因为一件排不下就整体放弃。
 
-未定义类型：`free_time_undefined`、`routines_unconfirmed`、`estimate_undefined`、`deadline_undefined`、`event_end_undefined`、`event_time_pending`、`beyond_horizon`（截止超出31天排程范围）、`task_limit`（一次超过40件工作或自由时间超过200段，较晚截止的暂不安排，状态为 `not_attempted`）。
+未定义类型：`free_time_undefined`、`routines_unconfirmed`、`deadline_undefined`、`event_end_undefined`、`event_time_pending`、`beyond_horizon`（截止超出31天排程范围）、`task_limit`（一次超过40件工作或自由时间超过200段，较晚截止的暂不安排，状态为 `not_attempted`）。说明（1.26 起）：截止之事未填预计用时时，任务 `state` 仍保留 `estimate_undefined` 以兼容既有客户端且在截止时刻输出 `deadline` 标记（不猜默认时长、不划工作块），但**不再写入 `undefined`（待书）列表**，也不因此把整周 `status` 标为 `incomplete`。
 
 规则提取的标题会去掉时间与“请于……前”等套话（如“提交课程报告”），“……举行”改写为“参加……”；同一句中识别出的地点填入临时占用。
 
@@ -200,5 +200,15 @@
 - **一句话个人提醒（1.22，`personal_reminders_v1`）**：`POST /api/v3/extract` 前置调用 `personal.with_personal`，识别“提醒我/帮我记/记得/别忘了”或短句口语日期，将带起止或外出时刻的句子转为 `appointment`（约定），其余转为带 `"个人任务"` 标记的 `task`，非个人句子再交规则或 Dify 提取。1.25 修复“前提交”截止误判及混合输入引文分隔符保真。
 - **研磨只读聊天（1.23，`agenda_chat_v1`）**：`POST /api/v3/chat`（仅 `mode: "model"`），接收 1–9 条交替对话，调用 DeepSeek 返回 `{"reply": "…"}`；只读，不读取清单、不写入任务。
 - **单条时间容错（1.24，`agenda_time_validation_v1`）**：`/api/v3/calendar` 将单条活动或任务的矛盾时间（如结束早于开始、最早开始晚于截止、最小连续时长超过预计用时）转入 `undefined`（`event_time_invalid` / `task_time_invalid`）而非整份快照 400 失败。
-- **路演链条修补（1.25）**：规则提取补齐说明会/分享会/晚会等校园活动词并清理冒号标题；`add_free` 避开已有 `free_adjustments`；跨周约定叠墨补齐 `±3 天` 改约空档；公网并发 429 退还 `PublicModelGate` 误扣额度；`validate_snapshot_v3` 校验 `sources[].published_at`。
+- **路演链条修补（1.25）**：规则提取补齐说明会/分享会/晚会等校园活动词并清理冒号标题、剥离前导「举行」并拆出末尾括号场所地点、修复逗号分隔区间误判；`add_free` 避开已有 `free_adjustments`；跨周约定叠墨补齐 `±3 天` 改约空档；公网并发 429 退还 `PublicModelGate` 误扣额度；`validate_snapshot_v3` 校验 `sources[].published_at`。
+
+## 四项确定性进阶能力（1.26）
+
+均不修改既有 v2/v3 路由与字段，零新增第三方依赖，严格只读计算：
+
+- **`POST /api/v3/solve`（`exact_solver.py`，`exact_solver_v1`）**：纯 Python 分支定界精确求解器（支持 DAG 前置依赖 `dependencies`、跨楼宇通勤缓冲 `transit_minutes` 预警与预留、零共享逻辑独立校验，以及叠墨场景下的帕累托非支配多方案对比 `pareto_plans`）。
+- **`POST /api/v3/notice-diff`（`notice_diff.py`，`notice_diff_v1`）**：校园变更/取消通知追踪，按标题相似度匹配已有活跃事项，输出字段级差异 `operations`、预演重算前后影响 `impact` 与待确认快照 `preview_snapshot`。
+- **`POST /api/v3/calibrate-capacity`（`calibration.py`，`capacity_calibration_v1`）**：统计个人历史 `actual_minutes / estimated_minutes` 中位膨胀系数（与前端 `estimate-memory.js` 类别一致），输出名义与校准双轨承诺试算及乐观偏差违约预警 `optimism_risk`。
+- **`POST /api/v3/group/export-mask` & `POST /api/v3/group/coordinate`（`group_coord.py`，`privacy_group_coord_v1`）**：两阶段隐私保护群体约时——先由个人节点导出仅含 0/1 空闲位图的脱敏掩码（不含课程名、事件名、地点或任务文本），再由协调接口按成员权重聚合出冲突最少的 Top-K 候选时段与空闲热力图。
+
 

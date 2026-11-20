@@ -16,9 +16,13 @@ from .extraction_access import EXTRACTION_BUDGET, PUBLIC_MODEL_GATE, forwarded_c
 from .snapshot import calculate_snapshot
 from .advise import advise
 from .agenda_chat import agenda_chat
+from .calibration import calibrate_capacity
 from .end_estimate import estimate_end
+from .exact_solver import solve_snapshot
+from .group_coord import coordinate_group_slots, export_availability_mask
 from .layers import calendar_snapshot
 from .layer_import import items_from_candidates, items_from_rules
+from .notice_diff import diff_notice
 from .personal import with_personal
 from .timetable import recognize_timetable
 from .deepseek_client import deepseek_status
@@ -45,6 +49,16 @@ def process_post(path: str, payload: object) -> dict:
         return extract_notice(payload)
     if path == "/api/v3/calendar":
         return calendar_snapshot(payload)
+    if path == "/api/v3/solve":
+        return solve_snapshot(payload)
+    if path == "/api/v3/notice-diff":
+        return diff_notice(payload)
+    if path == "/api/v3/calibrate-capacity":
+        return calibrate_capacity(payload)
+    if path == "/api/v3/group/export-mask":
+        return export_availability_mask(payload)
+    if path == "/api/v3/group/coordinate":
+        return coordinate_group_slots(payload)
     if path == "/api/v3/timetable":
         return recognize_timetable(payload)
     if path == "/api/v3/estimate-end":
@@ -113,11 +127,11 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "name": "司序·知所先后 API",
                     "message": "Backend is running. /api/v2/extract is a separately configured local model service.",
-                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat"],
+                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/group/coordinate"],
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": __version__, "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": __version__, "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1", "exact_solver_v1", "notice_diff_v1", "capacity_calibration_v1", "privacy_group_coord_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -153,14 +167,14 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat"}:
+        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/group/coordinate"}:
             return json_response(self, {"error": "unknown endpoint"}, 404)
         budget_acquired = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length < 0:
                 raise ValueError("Content-Length不得为负数")
-            snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan", "/api/v3/calendar"}
+            snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan", "/api/v3/calendar", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask"}
             # Timetable screenshots arrive as base64 and can exceed 1MiB.
             limit = MAX_SNAPSHOT_BODY_BYTES if snapshot_request or parsed.path == "/api/v3/timetable" else MAX_BODY_BYTES
             if length > limit:
@@ -170,7 +184,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
             def reject_constant(value: str) -> None:
                 raise ValueError(f"JSON不允许{value}")
             payload = json.loads(raw, parse_constant=reject_constant)
-            model_request = parsed.path == "/api/v2/extract" or (parsed.path in {"/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat"} and isinstance(payload, dict)
+            model_request = parsed.path == "/api/v2/extract" or (parsed.path in {"/api/v3/extract", "/api/v3/notice-diff", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat"} and isinstance(payload, dict)
                                                                 and payload.get("mode", "model" if parsed.path == "/api/v3/timetable" else "rules") in {"model", "image"})
             # The local workbench is trusted; anything else needs the server's access code and stays
             # within the daily caps (extraction_access.PublicModelGate).

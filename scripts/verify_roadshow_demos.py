@@ -94,6 +94,8 @@ def run_demo1(port: int) -> dict:
     status, cal_pending = _request(port, "POST", "/api/v3/calendar", {"snapshot": snap, "range": DEMO_WEEK})
     assert status == 200, cal_pending
     assert cal_pending["tasks"][0]["state"] == "estimate_undefined"
+    assert cal_pending["undefined"] == [], cal_pending["undefined"]
+    assert any(m["type"] == "deadline" and m["id"] == snap["tasks"][0]["id"] for m in cal_pending["markers"])
     assert len(cal_pending["conflicts"]) == 1 and cal_pending["conflicts"][0]["minutes"] == 30
     assert cal_pending["layers"]["work"] == []
 

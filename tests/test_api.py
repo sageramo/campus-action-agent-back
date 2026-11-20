@@ -57,10 +57,36 @@ class APITests(unittest.TestCase):
 
     def test_health_exposes_new_version(self):
         status, result = self.request("GET", "/api/health")
-        self.assertEqual((status, result["version"]), (200, "1.25"))
-        self.assertEqual(__version__, "1.25")
+        self.assertEqual((status, result["version"]), (200, "1.26"))
+        self.assertEqual(__version__, "1.26")
         self.assertIn('model_notice_candidates_v1', result['capabilities'])
+        for cap in ('exact_solver_v1', 'notice_diff_v1', 'capacity_calibration_v1', 'privacy_group_coord_v1'):
+            self.assertIn(cap, result['capabilities'])
         self.assertEqual(set(result['model_extraction']), {'configured', 'enabled'})
+
+    def test_v126_innovation_http_endpoints_roundtrip(self):
+        snap = json.loads((ROOT / "examples/roadshow-photo-club.snapshot.json").read_text(encoding="utf-8"))
+        status, solved = self.request("POST", "/api/v3/solve", {"snapshot": snap, "range": {"from": "2026-11-23", "to": "2026-11-29"}})
+        self.assertEqual((status, solved["algorithm"]["name"]), (200, "exact_branch_and_bound_v1"))
+        status, diffed = self.request("POST", "/api/v3/notice-diff", {
+            "snapshot": snap, "text": "2026年11月25日14:30-15:30举行摄影社招新说明会（学活204）。", "reference_date": "2026-11-25",
+        })
+        self.assertEqual((status, diffed["summary"]["added"]), (200, 1))
+        status, cal = self.request("POST", "/api/v3/calibrate-capacity", {
+            "history": [{"title": "报告", "estimated_minutes": 30, "actual_minutes": 45}, {"title": "论文", "estimated_minutes": 60, "actual_minutes": 90}],
+            "title": "写文案", "nominal_minutes": 40,
+        })
+        self.assertEqual((status, cal["calibrated_minutes"]), (200, 60))
+        status, mask = self.request("POST", "/api/v3/group/export-mask", {
+            "snapshot": snap, "range": {"from": "2026-11-25", "to": "2026-11-25"}, "slot_minutes": 60,
+        })
+        self.assertEqual((status, mask["slots_total"]), (200, 24))
+        status, coord = self.request("POST", "/api/v3/group/coordinate", {
+            "range": {"from": "2026-11-25", "to": "2026-11-25"}, "slot_minutes": 60, "duration_minutes": 60,
+            "participants": [{"label": "A", "free_mask": mask["free_mask"]}],
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(len(coord["recommended_slots"]), 0)
 
     def test_parse_forwards_reference_date_and_interval_metadata(self):
         status, result = self.request("POST", "/api/parse", {"text": "明天下午3点-5点开会", "reference_date": "2026-10-24", "timezone": "Asia/Shanghai"})

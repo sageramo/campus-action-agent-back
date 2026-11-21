@@ -219,12 +219,15 @@ def _shortage(task: dict, reference: datetime, free: list[Interval], used: list[
 
 
 def calendar_snapshot(payload: object) -> dict[str, Any]:
-    if not isinstance(payload, dict) or set(payload) - {"snapshot", "range"} or "snapshot" not in payload:
-        raise ValueError("请求体需要 snapshot，可选 range")
+    if not isinstance(payload, dict) or set(payload) - {"snapshot", "range", "now"} or "snapshot" not in payload:
+        raise ValueError("请求体需要 snapshot，可选 range、now")
     snapshot = payload["snapshot"]
     time_issues: dict[str, str] = {}
     validate_snapshot_v3(snapshot, time_issues=time_issues)
     reference = _instant(snapshot["reference_time"], "reference_time")
+    if "now" in payload and payload["now"] is None:
+        raise ValueError("now 不能显式传 null；请提供当前时刻或省略")
+    clock_now = _instant(payload["now"], "now") if payload.get("now") is not None else reference
     first, last = _range(payload, reference)
     view_start, view_end = _at(first, 0), _at(last + timedelta(days=1), 0)
     limit = reference + timedelta(days=MAX_HORIZON_DAYS)
@@ -232,6 +235,12 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
     undefined: list[dict] = []
     conflicts: list[dict] = []
     warnings: list[str] = []
+    if clock_now < reference - timedelta(minutes=5):
+        ref_local = reference.astimezone(get_zone())
+        warnings.append(
+            f"当前「开始安排时刻」设在未来（{ref_local.month}月{ref_local.day}日 {ref_local.strftime('%H:%M')}），"
+            "早于此时刻的工作不会被排入；如需按此刻安排，请在铺纸点击「使用当前时间」。"
+        )
     if not free_defined:
         undefined.append({"type": "free_time_undefined", "id": None, "title": None,
                           "reason": "还没有设置每天的作息范围，自由时间未定义，暂不生成工作时间。"})
@@ -254,7 +263,7 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
         elif deadline is None:
             entry["state"] = "deadline_undefined"
             undefined.append({"type": "deadline_undefined", "id": task["id"], "title": task["title"], "reason": "截止时间未定义，无法判断何时完成。"})
-        elif deadline <= reference:
+        elif deadline <= clock_now:
             entry["state"] = "overdue"
             conflicts.append({"type": "overdue", "layers": ["work"], "items": [{"layer": "work", "id": task["id"], "title": task["title"]}],
                               "start": None, "end": _iso(deadline), "minutes": None, "reason": "截止已过，事项仍未完成；请标记完成、取消或修改截止。"})
@@ -262,6 +271,15 @@ def calendar_snapshot(payload: object) -> dict[str, Any]:
             # Missing estimate is optional: keep state='estimate_undefined' for client compatibility
             # and still emit the deadline marker, without flagging it as 待书 (undefined).
             entry["state"] = "estimate_undefined"
+        elif deadline <= reference:
+            entry["state"] = "short"
+            ref_local = reference.astimezone(get_zone())
+            conflicts.append({
+                "type": "work_shortage", "layers": ["work"],
+                "items": [{"layer": "work", "id": task["id"], "title": task["title"]}],
+                "start": None, "end": _iso(deadline), "minutes": task["estimate_minutes"],
+                "reason": f"尚未过截止，但设定的「开始安排时刻」（{ref_local.month}月{ref_local.day}日 {ref_local.strftime('%H:%M')}）晚于截止时间；请到铺纸切回当前时间后再排。",
+            })
         elif deadline > limit:
             entry["state"] = "beyond_horizon"
             undefined.append({"type": "beyond_horizon", "id": task["id"], "title": task["title"], "reason": f"截止超出{MAX_HORIZON_DAYS}天排程范围，临近时再安排。"})

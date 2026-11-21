@@ -165,13 +165,16 @@ def attach_strategies(conflicts: list[dict], *, snapshot: dict, reference: datet
             missing = conflict["minutes"]
             if task:
                 deadline = _instant(task["deadline_at"], "deadline")
-                if not task["splittable"]:
+                if deadline <= reference:
+                    advice = "这件事尚未过截止，只是当前「开始安排时刻」设在了它之后；切回当前时间即可排入。"
+                    strategies.append(_strategy("review", "去铺纸切回当前时间", "把「开始安排时刻」恢复为当前时间，画卷会立刻按今天重新排程。", {"page": "time"}, recommended=True))
+                elif not task["splittable"]:
                     advice = "这件事要求一口气做完，留白却是零碎的；允许拆开做最省事。"
                     strategies.append(_strategy("update_task", "允许拆开做", "分几段放进截止前的留白。", {"task_id": task["id"], "patch": {"splittable": True}}, recommended=True))
                 elif not missing and (task["min_block_minutes"] or 30) > SMALL_BLOCK:
                     advice = "空档总量够，只是每段太短；把每段最短时长调小。"
                     strategies.append(_strategy("update_task", f"每段最短{SMALL_BLOCK}分钟", "更短的空档也能用上。", {"task_id": task["id"], "patch": {"min_block_minutes": SMALL_BLOCK}}, recommended=True))
-                if missing:
+                if missing and deadline > reference:
                     advice = advice or f"截止前的留白还差约{missing}分钟，补一段留白或压缩用时。"
                     slot = _extra_free(snapshot, deadline, missing, reference, busy_spans)
                     if slot:

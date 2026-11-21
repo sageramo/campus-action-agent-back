@@ -1,7 +1,7 @@
 """Campus action planning agent core package."""
 
 # Single source of the backend version: /api/health and the HTTP Server header both read it.
-__version__ = "1.27"
+__version__ = "1.28"
 
 __all__ = [
     "conflict",

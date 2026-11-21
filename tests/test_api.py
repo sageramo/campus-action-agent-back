@@ -57,10 +57,10 @@ class APITests(unittest.TestCase):
 
     def test_health_exposes_new_version(self):
         status, result = self.request("GET", "/api/health")
-        self.assertEqual((status, result["version"]), (200, "1.27"))
-        self.assertEqual(__version__, "1.27")
+        self.assertEqual((status, result["version"]), (200, "1.28"))
+        self.assertEqual(__version__, "1.28")
         self.assertIn('model_notice_candidates_v1', result['capabilities'])
-        for cap in ('exact_solver_v1', 'notice_diff_v1', 'capacity_calibration_v1', 'privacy_group_coord_v1'):
+        for cap in ('exact_solver_v1', 'notice_diff_v1', 'capacity_calibration_v1', 'privacy_group_coord_v1', 'separate_clock_now_v1'):
             self.assertIn(cap, result['capabilities'])
         self.assertEqual(set(result['model_extraction']), {'configured', 'enabled'})
 

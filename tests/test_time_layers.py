@@ -200,6 +200,35 @@ class WorkTimeTests(TestCase):
         self.assertEqual(scheduled['tasks'][0]['state'], 'scheduled')
         self.assertEqual(len(scheduled['layers']['work']), 1)
 
+    def test_future_reference_time_with_real_now_never_falsely_marks_today_overdue(self):
+        # Exact reproduction of user screenshot: demo locked reference_time to next Wed 11-25 13:30,
+        # while real wall clock `now` is Sat 11-21 12:31 and user adds tonight's 21:00 & 23:59 tasks.
+        data = snapshot(
+            reference_time='2026-11-25T13:30:00+08:00',
+            tasks=[
+                task(id='t-unest', title='交实验报告', deadline_at='2026-11-21T21:00:00+08:00', estimate_minutes=None),
+                task(id='t-est', title='学英语', deadline_at='2026-11-21T23:59:00+08:00', estimate_minutes=30),
+                task(id='t-past', title='昨天已过期任务', deadline_at='2026-11-20T18:00:00+08:00', estimate_minutes=30),
+            ],
+        )
+        result = calendar_snapshot({
+            'snapshot': data,
+            'range': {'from': '2026-11-16', 'to': '2026-11-22'},
+            'now': '2026-11-21T12:31:00+08:00',
+        })
+        states = {item['id']: item['state'] for item in result['tasks']}
+        self.assertEqual(states['t-unest'], 'estimate_undefined')
+        self.assertEqual(states['t-est'], 'short')
+        self.assertEqual(states['t-past'], 'overdue')
+        # Warning explains that reference_time is in the future
+        self.assertTrue(any('11月25日 13:30' in w and '使用当前时间' in w for w in result['warnings']))
+        # Estimated task before future reference_time gets "去铺纸切回当前时间" instead of "已过截止"
+        est_conflict = next(c for c in result['conflicts'] if c['items'][0]['id'] == 't-est')
+        self.assertEqual(est_conflict['type'], 'work_shortage')
+        self.assertIn('尚未过截止', est_conflict['reason'])
+        self.assertEqual(est_conflict['strategies'][0]['label'], '去铺纸切回当前时间')
+        self.assertEqual(est_conflict['strategies'][0]['params'], {'page': 'time'})
+
     def test_work_never_starts_before_the_reference_time(self):
         result = week(snapshot(reference_time='2026-11-09T20:00:00+08:00', tasks=[task(estimate_minutes=30)]))
         self.assertGreaterEqual(result['layers']['work'][0]['start'], '2026-11-09T20:00:00+08:00')

@@ -51,7 +51,7 @@ class ReplanLoopTests(unittest.TestCase):
     def test_health_declares_129_replan_and_focus_capabilities(self) -> None:
         with urlopen(f"{self.base_url}/api/health", timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        self.assertEqual(data["version"], "1.29")
+        self.assertEqual(data["version"], "1.29.1")
         self.assertIn("replan_loop_v1", data["capabilities"])
         self.assertIn("focus_cognitive_scheduling_v1", data["capabilities"])
 
@@ -388,6 +388,31 @@ class ReplanLoopTests(unittest.TestCase):
         self.assertEqual(preview["candidate_plans"][0]["metrics"]["moved_tasks"], 0)
         self.assertIsNotNone(preview["focus_hint"])
         self.assertIn("专注匹配优先方案", preview["focus_hint"])
+
+    def test_confirm_accepts_a_list_with_nothing_to_schedule(self) -> None:
+        # Repro from the live site: 路演案例 imported, 报名表 without an estimate, then "今天晚上好累".
+        # /api/v3/calendar reports validation.passed = None (nothing to check); that is not a failure.
+        snap = deepcopy(self.fixture_doc["fixtures"]["success_replan"]["preview_request"]["snapshot"])
+        for task in snap["tasks"]:
+            task["estimate_minutes"] = None
+        rng = {"from": "2026-11-23", "to": "2026-11-29"}
+        now = "2026-11-25T08:00:00+08:00"
+        preview = process_post("/api/v3/replan/preview", {
+            "snapshot": snap, "range": rng, "now": now,
+            "focus_windows": [{"start": "2026-11-25T19:00:00+08:00", "end": "2026-11-25T23:00:00+08:00", "level": "low", "label": "精力偏低"}],
+        })
+        self.assertEqual(preview["status"], "ready")
+        self.assertFalse(preview["needs_decision"])
+        plan = preview["candidate_plans"][0]
+        self.assertEqual(plan["expected_schedule"], [])
+        confirmed = process_post("/api/v3/replan/confirm", {
+            "snapshot": snap, "range": rng, "now": now, "base_revision": preview["base_revision"],
+            "snapshot_fingerprint": preview["snapshot_fingerprint"], "plan_id": plan["plan_id"],
+            "preview_token": plan["preview_token"], "preview_snapshot": plan["preview_snapshot"],
+            "expected_schedule": plan["expected_schedule"],
+        })
+        self.assertTrue(confirmed["confirmed"])
+        self.assertIsNone(confirmed["calendar_validation"]["passed"])
 
     def test_confirm_rejects_tampered_schedule_or_preview_snapshot_with_409_preview_tampered(self) -> None:
         fx = self.fixture_doc["fixtures"]["success_replan"]

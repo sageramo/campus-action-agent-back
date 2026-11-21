@@ -1203,7 +1203,8 @@ def replan_confirm(payload: object) -> dict[str, Any]:
     titles_by_id = {t["id"]: t["title"] for t in confirmed["tasks"]}
     expected_by_task = _group_blocks(expected_schedule)
     mismatches = _compare_calendar_work(cal_check, expected_by_task, titles_by_id)
-    if mismatches or not cal_check["validation"]["passed"]:
+    # validation.passed is None when there is no work to schedule (nothing to check), which is not a failure.
+    if mismatches or cal_check["validation"]["passed"] is False:
         diff_desc = "；".join(
             f"「{m['title']}」预期 {[(b['start'], b['end']) for b in m['expected']]}，画卷实际 {[(b['start'], b['end']) for b in m['actual']]}"
             for m in mismatches[:3]

@@ -117,3 +117,17 @@ class PersonalReminderTests(TestCase):
             "routines_confirmed": True, "routines": [], "free_adjustments": [],
             "events": imported2["events"], "tasks": imported2["tasks"],
         })
+
+    def test_weekend_personal_task_resolves_to_saturday_sunday_and_questions_are_ignored(self):
+        # 2026-11-18 is Wednesday -> this weekend is Sat 2026-11-21 to Sun 2026-11-22
+        result = process_post("/api/v3/extract", {"text": "我这周末要写高数作业", "reference_date": "2026-11-18", "mode": "rules"})
+        (task,) = result["tasks"]
+        self.assertEqual(task["title"], "写高数作业")
+        self.assertEqual(task["earliest_start_at"], "2026-11-21T00:00:00+08:00")
+        self.assertEqual(task["deadline_at"], "2026-11-22T23:59:00+08:00")
+        self.assertIn("个人任务", task["notes"])
+        # Interrogative weekend question must NOT become a personal task
+        from campus_agent.personal import split_personal
+        events, tasks, rest = split_personal("周末我有没有时间参加社团活动", "2026-11-18", "s-q")
+        self.assertEqual((events, tasks), ([], []))
+        self.assertEqual(rest, "周末我有没有时间参加社团活动")

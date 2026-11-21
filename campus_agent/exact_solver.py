@@ -32,6 +32,262 @@ Interval = tuple[datetime, datetime]
 MAX_SEARCH_NODES = 10_000
 MAX_PARETO_CONFLICTS = 4
 DEFAULT_STEP_MINUTES = 15
+VALID_LEVELS = {"high", "medium", "low"}
+FOCUS_WEIGHTS: dict[str, dict[str, int]] = {
+    "high": {"high": 3, "medium": 1, "neutral": 0, "low": -2},
+    "medium": {"high": 1, "medium": 2, "neutral": 1, "low": 0},
+    "low": {"high": 0, "medium": 1, "neutral": 1, "low": 2},
+}
+LEVEL_CN = {"high": "高", "medium": "中", "low": "低", "neutral": "常规"}
+
+
+def _parse_hhmm(value: str, day: date, field: str) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} 必须是 HH:MM 或 ISO8601 字符串")
+    if "T" in value:
+        return _instant(value, field)
+    parts = value.strip().split(":")
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        raise ValueError(f"{field} 格式应为 HH:MM 或 ISO8601")
+    hour, minute = int(parts[0]), int(parts[1])
+    if hour == 24 and minute == 0:
+        return datetime.combine(day + timedelta(days=1), datetime.min.time(), get_zone())
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError(f"{field} 超出 00:00–24:00 范围")
+    return datetime.combine(day, datetime.min.time(), get_zone()) + timedelta(hours=hour, minutes=minute)
+
+
+def parse_focus_windows(raw_windows: Any, start_day: date, end_day: date) -> list[dict[str, Any]]:
+    """Expand optional focus windows into concrete timezone-aware intervals within [start_day, end_day]."""
+    if raw_windows is None:
+        return []
+    if not isinstance(raw_windows, list):
+        raise ValueError("focus_windows 必须是数组")
+    expanded: list[dict[str, Any]] = []
+    for idx, entry in enumerate(raw_windows):
+        if not isinstance(entry, dict):
+            raise ValueError("focus_windows 每项必须是对象")
+        level = entry.get("level", "high")
+        if level not in VALID_LEVELS:
+            raise ValueError("focus_windows.level 只能是 high、medium 或 low")
+        label = str(entry.get("label") or f"{LEVEL_CN[level]}专注时段").strip()[:80]
+        raw_start, raw_end = entry.get("start"), entry.get("end")
+        if not raw_start or not raw_end:
+            raise ValueError("focus_windows 每项必须包含 start 和 end")
+        if isinstance(raw_start, str) and "T" in raw_start and isinstance(raw_end, str) and "T" in raw_end:
+            s_dt = _instant(raw_start, f"focus_windows[{idx}].start")
+            e_dt = _instant(raw_end, f"focus_windows[{idx}].end")
+            if e_dt <= s_dt:
+                raise ValueError("focus_windows 的 end 必须晚于 start")
+            expanded.append({"start": s_dt, "end": e_dt, "level": level, "label": label})
+            continue
+        target_days: list[date] = []
+        if entry.get("date"):
+            target_days = [date.fromisoformat(str(entry["date"]))]
+        else:
+            raw_wd = entry.get("weekdays") if "weekdays" in entry else ([entry["weekday"]] if "weekday" in entry else None)
+            if raw_wd is None:
+                allowed = {1, 2, 3, 4, 5, 6, 7}
+            else:
+                if not isinstance(raw_wd, list) or not all(isinstance(w, int) and not isinstance(w, bool) and 1 <= w <= 7 for w in raw_wd):
+                    raise ValueError("focus_windows.weekday(s) 必须是 1–7 的整数")
+                allowed = set(raw_wd)
+            cur = start_day
+            while cur <= end_day:
+                if cur.isoweekday() in allowed:
+                    target_days.append(cur)
+                cur += timedelta(days=1)
+        for day in target_days:
+            s_dt = _parse_hhmm(raw_start, day, f"focus_windows[{idx}].start")
+            e_dt = _parse_hhmm(raw_end, day, f"focus_windows[{idx}].end")
+            if e_dt <= s_dt:
+                raise ValueError("focus_windows 的 end 必须晚于 start")
+            expanded.append({"start": s_dt, "end": e_dt, "level": level, "label": label})
+    expanded.sort(key=lambda item: (item["start"], item["end"]))
+    return expanded
+
+
+def parse_task_profiles(raw_profiles: Any, tasks: list[dict]) -> dict[str, str]:
+    """Resolve optional cognitive_load per task ('high' | 'medium' | 'low', default 'medium')."""
+    if raw_profiles is not None and not isinstance(raw_profiles, dict):
+        raise ValueError("task_profiles 必须是按 task_id 索引的对象")
+    profiles = raw_profiles or {}
+    result: dict[str, str] = {}
+    for task in tasks:
+        tid = task["id"]
+        entry = profiles.get(tid)
+        if entry is not None and not isinstance(entry, dict):
+            raise ValueError(f"task_profiles['{tid}'] 必须是对象")
+        level = (entry or {}).get("cognitive_load") or task.get("cognitive_load") or "medium"
+        if level not in VALID_LEVELS:
+            raise ValueError(f"任务「{tid}」的 cognitive_load 只能是 high、medium 或 low")
+        result[tid] = level
+    return result
+
+
+def parse_rest_blocks(raw_rests: Any) -> list[dict[str, Any]]:
+    """Validate optional temporary rest intervals; locked=True rest intervals are hard constraints."""
+    if raw_rests is None:
+        return []
+    if not isinstance(raw_rests, list):
+        raise ValueError("rest_blocks 必须是数组")
+    parsed: list[dict[str, Any]] = []
+    for idx, entry in enumerate(raw_rests):
+        if not isinstance(entry, dict):
+            raise ValueError("rest_blocks 每项必须是对象")
+        raw_start = entry.get("start") or entry.get("start_at")
+        raw_end = entry.get("end") or entry.get("end_at")
+        if not raw_start or not raw_end:
+            raise ValueError("rest_blocks 每项必须包含 start 和 end")
+        s_dt = _instant(raw_start, f"rest_blocks[{idx}].start")
+        e_dt = _instant(raw_end, f"rest_blocks[{idx}].end")
+        if e_dt <= s_dt:
+            raise ValueError("rest_blocks 的 end 必须晚于 start")
+        locked = entry.get("locked", True)
+        if not isinstance(locked, bool):
+            raise ValueError("rest_blocks.locked 必须是布尔值")
+        parsed.append({
+            "id": str(entry.get("id") or f"rest-{idx + 1}"),
+            "label": str(entry.get("label") or "临时休息").strip()[:80],
+            "start": _iso(s_dt),
+            "end": _iso(e_dt),
+            "start_dt": s_dt,
+            "end_dt": e_dt,
+            "locked": locked,
+            "minutes": _minutes(s_dt, e_dt),
+        })
+    parsed.sort(key=lambda item: (item["start_dt"], item["end_dt"]))
+    return parsed
+
+
+def score_task_focus(
+    blocks: list[Interval], cognitive_load: str, focus_intervals: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Deterministic focus-matching score for one task's placed blocks."""
+    weights = FOCUS_WEIGHTS.get(cognitive_load, FOCUS_WEIGHTS["medium"])
+    by_level = {"high": 0, "medium": 0, "low": 0, "neutral": 0}
+    matched_labels: list[str] = []
+    for b_start, b_end in blocks:
+        total = _minutes(b_start, b_end)
+        covered = 0
+        for fw in focus_intervals:
+            ov_s = max(b_start, fw["start"])
+            ov_e = min(b_end, fw["end"])
+            if ov_e > ov_s:
+                mins = _minutes(ov_s, ov_e)
+                by_level[fw["level"]] += mins
+                covered += mins
+                if fw["label"] not in matched_labels:
+                    matched_labels.append(fw["label"])
+        by_level["neutral"] += max(0, total - covered)
+    score = sum(by_level[lvl] * weights[lvl] for lvl in by_level)
+    dominant = max(by_level, key=lambda lvl: (by_level[lvl], weights[lvl])) if any(by_level.values()) else "neutral"
+    if not focus_intervals:
+        summary = f"认知负荷「{LEVEL_CN[cognitive_load]}」，未设置专注时段。"
+    elif matched_labels:
+        summary = f"认知负荷「{LEVEL_CN[cognitive_load]}」匹配至「{' / '.join(matched_labels[:2])}」（匹配分 {score}）。"
+    else:
+        summary = f"认知负荷「{LEVEL_CN[cognitive_load]}」落在常规留白时段（匹配分 {score}）。"
+    return {
+        "cognitive_load": cognitive_load,
+        "score": score,
+        "matched_minutes": by_level,
+        "dominant_focus_level": dominant,
+        "matched_labels": matched_labels,
+        "summary": summary,
+    }
+
+
+def diagnose_missing_windows(
+    tasks: list[dict],
+    free_slots: list[Interval],
+    blocking_items: list[dict[str, Any]],
+    reference: datetime,
+) -> list[dict[str, Any]]:
+    """Explicitly report what time windows are missing before each infeasible task's deadline."""
+    diagnostics: list[dict[str, Any]] = []
+    ordered = sorted(tasks, key=lambda t: _instant(t["deadline_at"], "deadline"))
+    cumulative_need = 0
+    for task in ordered:
+        rel = max(reference, _instant(task["earliest_start_at"], "earliest")) if task.get("earliest_start_at") else reference
+        dl = _instant(task["deadline_at"], "deadline")
+        need = int(task["estimate_minutes"])
+        cumulative_need += need
+        clipped: list[Interval] = []
+        for s, e in free_slots:
+            cs, ce = max(s, rel), min(e, dl)
+            if ce > cs:
+                clipped.append((cs, ce))
+        avail = sum(_minutes(s, e) for s, e in clipped)
+        longest = max((_minutes(s, e) for s, e in clipped), default=0)
+        # Also check cumulative capacity from reference up to this deadline
+        cum_clipped = [(max(s, reference), min(e, dl)) for s, e in free_slots if min(e, dl) > max(s, reference)]
+        cum_avail = sum(_minutes(s, e) for s, e in cum_clipped)
+        own_short = max(0, need - avail)
+        contig_short = 0 if task["splittable"] else max(0, need - longest)
+        cum_short = max(0, cumulative_need - cum_avail)
+        shortfall = max(own_short, contig_short, cum_short)
+        if shortfall <= 0 and dl > rel:
+            continue
+        blockers = [
+            {
+                "title": b["title"],
+                "kind": b["kind"],
+                "start": b["start"],
+                "end": b["end"],
+            }
+            for b in blocking_items
+            if b["end_dt"] > rel and b["start_dt"] < dl
+        ][:6]
+        if dl <= rel:
+            summary = f"「{task['title']}」截止时间 {dl.strftime('%m月%d日 %H:%M')} 不晚于当前起点 {rel.strftime('%m月%d日 %H:%M')}，已无可用排程窗口。"
+        elif not task["splittable"] and own_short == 0 and contig_short > 0:
+            summary = (
+                f"「{task['title']}」不可拆分，需连续 {need} 分钟，但 {rel.strftime('%m月%d日 %H:%M')}–{dl.strftime('%m月%d日 %H:%M')} "
+                f"内最长连续留白仅 {longest} 分钟（缺少至少一段连续 {need} 分钟窗口）。"
+            )
+        elif own_short > 0:
+            summary = (
+                f"「{task['title']}」在 {dl.strftime('%m月%d日 %H:%M')} 截止前需要 {need} 分钟，"
+                f"但 {rel.strftime('%m月%d日 %H:%M')}–{dl.strftime('%m月%d日 %H:%M')} 内仅剩 {avail} 分钟可用留白，"
+                f"缺少至少 {own_short} 分钟时间窗口。"
+            )
+        else:
+            summary = (
+                f"截止到 {dl.strftime('%m月%d日 %H:%M')} 的累计待办共需 {cumulative_need} 分钟，"
+                f"但该截止前总可用留白仅 {cum_avail} 分钟（累计缺少 {cum_short} 分钟窗口，连带影响「{task['title']}」）。"
+            )
+        diagnostics.append({
+            "task_id": task["id"],
+            "title": task["title"],
+            "window_start": _iso(rel),
+            "deadline_at": _iso(dl),
+            "required_minutes": need,
+            "available_minutes": avail,
+            "longest_contiguous_minutes": longest,
+            "shortfall_minutes": max(shortfall, need if dl <= rel else 0),
+            "splittable": bool(task["splittable"]),
+            "blocking_items": blockers,
+            "summary": summary,
+        })
+    if not diagnostics and ordered:
+        # Fragmentation / dependency coupling infeasibility across multiple tasks
+        first_dl = _instant(ordered[-1]["deadline_at"], "deadline")
+        avail = sum(_minutes(max(s, reference), min(e, first_dl)) for s, e in free_slots if min(e, first_dl) > max(s, reference))
+        diagnostics.append({
+            "task_id": ordered[0]["id"],
+            "title": ordered[0]["title"],
+            "window_start": _iso(reference),
+            "deadline_at": _iso(first_dl),
+            "required_minutes": sum(int(t["estimate_minutes"]) for t in ordered),
+            "available_minutes": avail,
+            "longest_contiguous_minutes": max((_minutes(s, e) for s, e in free_slots), default=0),
+            "shortfall_minutes": max(15, sum(int(t["estimate_minutes"]) for t in ordered) - avail),
+            "splittable": all(bool(t["splittable"]) for t in ordered),
+            "blocking_items": [{"title": b["title"], "kind": b["kind"], "start": b["start"], "end": b["end"]} for b in blocking_items[:6]],
+            "summary": "受连续时长、依赖顺序或锁定休息切分影响，现有留白碎片无法同时容纳全部任务，请释放一段连续空档或延后部分截止。",
+        })
+    return diagnostics
 
 
 def _minutes(start: datetime, end: datetime) -> int:
@@ -207,8 +463,10 @@ def _candidate_placements(
     splittable: bool,
     min_block: int,
     step_min: int = DEFAULT_STEP_MINUTES,
+    focus_intervals: list[dict[str, Any]] | None = None,
+    preferred_start: datetime | None = None,
 ) -> list[tuple[list[Interval], list[Interval]]]:
-    """Generate exact candidate placements for one task: every feasible interval start + late-aligned fit."""
+    """Generate exact candidate placements for one task: earliest, preferred/baseline, focus-aligned, late-aligned, stepped."""
     candidates: list[tuple[list[Interval], list[Interval]]] = []
     seen_keys: set[tuple[tuple[datetime, datetime], ...]] = set()
     req_td = timedelta(minutes=required_min)
@@ -219,15 +477,28 @@ def _candidate_placements(
             seen_keys.add(key)
             candidates.append((blocks, _cut_intervals(slots, blocks)))
 
-    # 1. Single-block placements across all feasible slots (earliest start, end-aligned, and stepped).
+    # 1. Single-block placements across all feasible slots (earliest, preferred-start, focus-aligned, end-aligned, stepped).
     for s_start, s_end in slots:
         start = max(s_start, release)
         end = min(s_end, deadline)
         cap = _minutes(start, end)
         if cap < required_min:
             continue
+        # Keep original start position if it still fits cleanly in this slot (crucial for minimal_change)
+        if preferred_start is not None:
+            clamped = max(start, min(preferred_start, end - req_td))
+            add([(clamped, clamped + req_td)])
         # Earliest placement in this slot
         add([(start, start + req_td)])
+        # Focus-window aligned placements inside this slot so high-cognitive tasks can land on focus windows
+        for fw in focus_intervals or ():
+            fw_s = max(start, fw["start"])
+            fw_e = min(end, fw["end"])
+            if fw_e > fw_s:
+                if fw_s + req_td <= end:
+                    add([(fw_s, fw_s + req_td)])
+                if fw_e - req_td >= start:
+                    add([(fw_e - req_td, fw_e)])
         # End-aligned placement in this slot (crucial for leaving clean front room for other tasks)
         if cap > required_min:
             add([(end - req_td, end)])
@@ -256,10 +527,12 @@ def _verify_solution(
     placement: dict[str, list[Interval]],
     edges: list[dict[str, str]],
     reference: datetime,
+    locked_rests: list[Interval] | None = None,
 ) -> dict[str, Any]:
     """Independent zero-shared-logic verifier for exact solver schedules."""
     errors: list[str] = []
     all_blocks: list[tuple[datetime, datetime, str]] = []
+    rest_list = locked_rests or []
     for tid, task in tasks_by_id.items():
         blocks = placement.get(tid, [])
         if not blocks:
@@ -281,6 +554,8 @@ def _verify_solution(
                 errors.append(f"任务 {tid} 超出允许窗口 [{release.isoformat()}, {deadline.isoformat()}]")
             if not any(fs <= start and end <= fe for fs, fe in free_slots):
                 errors.append(f"任务 {tid} 的时段 {start.isoformat()}–{end.isoformat()} 不在可用留白内")
+            if any(start < re_end and end > re_start for re_start, re_end in rest_list):
+                errors.append(f"任务 {tid} 的时段 {start.isoformat()}–{end.isoformat()} 侵犯了用户锁定的休息区间")
             total += dur
             all_blocks.append((start, end, tid))
         if total != task["estimate_minutes"]:
@@ -294,17 +569,20 @@ def _verify_solution(
         a_blocks = placement.get(edge["after"], [])
         if b_blocks and a_blocks and max(e for _, e in b_blocks) > min(s for s, _ in a_blocks):
             errors.append(f"违反前置依赖：{edge['before']} 晚于 {edge['after']} 开始")
+    checked = [
+        "inside_derived_free_time",
+        "no_work_overlap",
+        "exact_estimate_minutes",
+        "earliest_and_deadline_bounds",
+        "splittable_and_min_block",
+        "dag_precedence_dependencies",
+    ]
+    if rest_list:
+        checked.append("respects_locked_rest_blocks")
     return {
         "passed": not errors,
         "errors": errors,
-        "checked_constraints": [
-            "inside_derived_free_time",
-            "no_work_overlap",
-            "exact_estimate_minutes",
-            "earliest_and_deadline_bounds",
-            "splittable_and_min_block",
-            "dag_precedence_dependencies",
-        ],
+        "checked_constraints": checked,
     }
 
 
@@ -315,32 +593,49 @@ def _solve_exact(
     succs: dict[str, list[str]],
     edges: list[dict[str, str]],
     reference: datetime,
+    *,
+    focus_intervals: list[dict[str, Any]] | None = None,
+    cognitive_loads: dict[str, str] | None = None,
+    locked_rests: list[Interval] | None = None,
+    blocking_items: list[dict[str, Any]] | None = None,
+    baseline_starts: dict[str, datetime] | None = None,
+    objective: str = "default",
 ) -> dict[str, Any]:
     """Exact branch-and-bound constraint search over schedulable active tasks."""
+    focus_list = focus_intervals or []
+    loads = cognitive_loads or {}
+    base_starts = baseline_starts or {}
+    effective_obj = "focus_first" if objective == "default" and focus_list else objective
     if not tasks:
         return {
             "status": "optimal",
             "nodes_explored": 0,
             "placement": {},
-            "validation": _verify_solution({}, free_slots, {}, edges, reference),
+            "focus_score": 0,
+            "missing_windows": [],
+            "validation": _verify_solution({}, free_slots, {}, edges, reference, locked_rests=locked_rests),
             "reason": "当前没有需要排程的待办任务。",
         }
     tasks_by_id = {t["id"]: t for t in tasks}
+    deadlines_by_id = {t["id"]: _instant(t["deadline_at"], "deadline") for t in tasks}
     # Quick total capacity lower-bound check
     total_free = sum(_minutes(s, e) for s, e in free_slots)
     total_need = sum(t["estimate_minutes"] for t in tasks)
     if total_need > total_free:
+        missing = diagnose_missing_windows(tasks, free_slots, blocking_items or [], reference)
         return {
             "status": "infeasible",
             "nodes_explored": 1,
             "placement": {},
+            "focus_score": 0,
+            "missing_windows": missing,
             "validation": {"passed": False, "errors": ["可用留白总时长不足以容纳全部任务"], "checked_constraints": []},
             "shortage_minutes": total_need - total_free,
             "reason": f"可用留白共 {total_free} 分钟，小于任务总需 {total_need} 分钟（至少差 {total_need - total_free} 分钟）。",
         }
 
     # Propagate tightened latest deadlines backwards through DAG
-    latest = {t["id"]: _instant(t["deadline_at"], "deadline") for t in tasks}
+    latest = dict(deadlines_by_id)
     indeg = {tid: len(preds[tid]) for tid in tasks_by_id}
     topo: list[str] = []
     q = sorted(tid for tid, d in indeg.items() if d == 0)
@@ -359,7 +654,35 @@ def _solve_exact(
     nodes = 0
     budget_hit = False
     best_solution: dict[str, list[Interval]] | None = None
-    best_score: tuple[int, int] | None = None  # (fragment_count, latest_finish_offset_min)
+    best_score: tuple[int, ...] | None = None
+    best_focus_score = 0
+
+    def rank_solution(placed: dict[str, list[Interval]]) -> tuple[tuple[int, ...], int]:
+        frags = sum(max(0, len(blks) - 1) for blks in placed.values())
+        makespan = max((_minutes(reference, max(e for _, e in blks)) for blks in placed.values()), default=0)
+        f_score = (
+            sum(score_task_focus(blks, loads.get(tid, "medium"), focus_list)["score"] for tid, blks in placed.items())
+            if focus_list
+            else 0
+        )
+        buffers = [_minutes(max(e for _, e in blks), deadlines_by_id[tid]) for tid, blks in placed.items()]
+        min_buf = min(buffers) if buffers else 0
+        total_buf = sum(buffers)
+        moved_mins = 0
+        moved_cnt = 0
+        for tid, blks in placed.items():
+            if tid in base_starts and blks:
+                delta = abs(_minutes(base_starts[tid], blks[0][0]))
+                moved_mins += delta
+                if delta > 0:
+                    moved_cnt += 1
+        if effective_obj == "minimal_change":
+            return (moved_mins, moved_cnt, frags, -f_score, -min_buf, makespan), f_score
+        if effective_obj == "focus_first":
+            return (-f_score, frags, -min_buf, moved_mins, makespan), f_score
+        if effective_obj == "buffer_first":
+            return (-min_buf, frags, -total_buf, makespan, -f_score), f_score
+        return (frags, makespan), f_score
 
     def search(
         remaining_ids: set[str],
@@ -367,13 +690,12 @@ def _solve_exact(
         placed: dict[str, list[Interval]],
         end_times: dict[str, datetime],
     ) -> None:
-        nonlocal nodes, budget_hit, best_solution, best_score
+        nonlocal nodes, budget_hit, best_solution, best_score, best_focus_score
         if not remaining_ids:
-            frags = sum(max(0, len(blks) - 1) for blks in placed.values())
-            makespan = max((_minutes(reference, max(e for _, e in blks)) for blks in placed.values()), default=0)
-            score = (frags, makespan)
+            score, f_score = rank_solution(placed)
             if best_score is None or score < best_score:
                 best_score = score
+                best_focus_score = f_score
                 best_solution = {tid: list(blks) for tid, blks in placed.items()}
             return
         if nodes >= MAX_SEARCH_NODES:
@@ -405,9 +727,17 @@ def _solve_exact(
                 task["estimate_minutes"],
                 bool(task["splittable"]),
                 task.get("min_block_minutes") or DEFAULT_MIN_BLOCK,
+                focus_intervals=focus_list,
+                preferred_start=base_starts.get(tid),
             )
             if not cands:
                 return  # Dead end immediately
+            if effective_obj == "minimal_change" and tid in base_starts:
+                orig_s = base_starts[tid]
+                cands.sort(key=lambda item: (abs(_minutes(orig_s, item[0][0][0])), item[0][0][0]))
+            elif effective_obj == "focus_first" and focus_list:
+                c_load = loads.get(tid, "medium")
+                cands.sort(key=lambda item: (-score_task_focus(item[0], c_load, focus_list)["score"], item[0][0][0]))
             scored_ready.append((len(cands), dl, tid, cands))
         scored_ready.sort(key=lambda item: (item[0], item[1], item[2]))
         _, _, pick_tid, pick_cands = scored_ready[0]
@@ -422,26 +752,34 @@ def _solve_exact(
             search(next_remaining, next_slots, placed, end_times)
             del placed[pick_tid]
             del end_times[pick_tid]
-            # Early stop once we have a zero-fragmentation optimal placement and explored tight neighborhood
-            if best_score is not None and best_score[0] == 0 and nodes >= 64:
+            # Early stop: allow wider exploration when ranking by focus/buffer/minimal_change
+            stop_limit = 256 if effective_obj in {"focus_first", "buffer_first", "minimal_change"} else 64
+            if best_score is not None and effective_obj == "default" and best_score[0] == 0 and nodes >= stop_limit:
+                return
+            if best_score is not None and effective_obj != "default" and nodes >= stop_limit:
                 return
 
     search(set(tasks_by_id), list(free_slots), {}, {})
     if best_solution is not None:
-        validation = _verify_solution(tasks_by_id, free_slots, best_solution, edges, reference)
+        validation = _verify_solution(tasks_by_id, free_slots, best_solution, edges, reference, locked_rests=locked_rests)
         return {
             "status": "optimal" if not budget_hit else "feasible",
             "nodes_explored": nodes,
             "placement": best_solution,
+            "focus_score": best_focus_score,
+            "missing_windows": [],
             "validation": validation,
             "reason": "精确约束求解器已找到并通过独立校验的可行排程。" if validation["passed"] else "独立校验未通过。",
         }
+    missing = diagnose_missing_windows(tasks, free_slots, blocking_items or [], reference)
     return {
         "status": "budget_exhausted" if budget_hit else "infeasible",
         "nodes_explored": nodes,
         "placement": {},
+        "focus_score": 0,
+        "missing_windows": missing,
         "validation": {"passed": False, "errors": ["未找到满足全部约束的排程"], "checked_constraints": []},
-        "reason": "达到搜索节点上限仍未找到解，不能断言数学无解。" if budget_hit else "在给定留白、连续块、通勤与前置依赖约束下无可行解。",
+        "reason": "达到搜索节点上限仍未找到解，不能断言数学无解。" if budget_hit else "在给定留白、连续块、锁定休息、通勤与前置依赖约束下无可行解。",
     }
 
 
@@ -584,8 +922,43 @@ def _pareto_plans(
     return pareto[:3]
 
 
+def _collect_blocking_items(cal_result: dict, rest_blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    for layer_name, kind_label in (("routine", "routine"), ("temporary", "temporary")):
+        for item in cal_result["layers"][layer_name]:
+            blockers.append({
+                "title": item["title"],
+                "kind": kind_label,
+                "start": item["start"],
+                "end": item["end"],
+                "start_dt": _instant(item["start"], "start"),
+                "end_dt": _instant(item["end"], "end"),
+            })
+    for item in cal_result["layers"].get("appointment", []):
+        blockers.append({
+            "title": item["title"],
+            "kind": "appointment",
+            "start": item["start"],
+            "end": item["end"],
+            "start_dt": _instant(item["start"], "start"),
+            "end_dt": _instant(item["end"], "end"),
+        })
+    for rb in rest_blocks:
+        if rb["locked"]:
+            blockers.append({
+                "title": f"锁定休息：{rb['label']}",
+                "kind": "locked_rest",
+                "start": rb["start"],
+                "end": rb["end"],
+                "start_dt": rb["start_dt"],
+                "end_dt": rb["end_dt"],
+            })
+    blockers.sort(key=lambda it: (it["start_dt"], it["end_dt"]))
+    return blockers
+
+
 def solve_snapshot(payload: object) -> dict[str, Any]:
-    """POST /api/v3/solve entry point: exact constraint solver + transit buffers + Pareto plans."""
+    """POST /api/v3/solve entry point: exact constraint solver + focus matching + locked rests + transit buffers + Pareto plans."""
     if not isinstance(payload, dict) or not isinstance(payload.get("snapshot"), dict):
         raise ValueError("请求必须包含 v3 snapshot 对象")
     snapshot = payload["snapshot"]
@@ -600,8 +973,23 @@ def solve_snapshot(payload: object) -> dict[str, Any]:
     if not isinstance(transit_minutes, int) or isinstance(transit_minutes, bool) or not (0 <= transit_minutes <= 120):
         raise ValueError("transit_minutes 必须是 0 到 120 之间的整数")
 
+    objective = payload.get("objective", "default")
+    if objective not in {"default", "focus_first", "buffer_first", "minimal_change"}:
+        raise ValueError("objective 只能是 default、focus_first、buffer_first 或 minimal_change")
+    raw_baseline = payload.get("baseline_starts") or {}
+    if not isinstance(raw_baseline, dict):
+        raise ValueError("baseline_starts 必须是按 task_id 索引的对象")
+    baseline_starts: dict[str, datetime] = {
+        tid: _instant(val, f"baseline_starts.{tid}")
+        for tid, val in raw_baseline.items()
+        if isinstance(val, str) and val
+    }
+
     # Derive base calendar layers (reuses v3 routine/temporary/free derivation)
-    base_cal = calendar_snapshot({"snapshot": snapshot, "range": date_range})
+    cal_req: dict[str, Any] = {"snapshot": snapshot, "range": date_range}
+    if payload.get("now") is not None:
+        cal_req["now"] = payload["now"]
+    base_cal = calendar_snapshot(cal_req)
     transit_warnings, transit_buffers = _detect_transit_warnings_and_buffers(base_cal, transit_minutes)
 
     reference = _instant(snapshot["reference_time"], "reference_time")
@@ -615,15 +1003,41 @@ def solve_snapshot(payload: object) -> dict[str, Any]:
     schedulable_ids = {t["id"] for t in schedulable}
     preds, succs, edges = _validate_dependencies(payload.get("dependencies"), schedulable_ids)
 
-    # Free intervals from base calendar, optionally deducting cross-building transit buffers
-    raw_free = [(_instant(f["start"], "s"), _instant(f["end"], "e")) for f in base_cal["layers"]["free"]]
-    effective_free = _cut_intervals(raw_free, transit_buffers) if transit_buffers else raw_free
+    focus_intervals = parse_focus_windows(payload.get("focus_windows"), start_day, end_day)
+    cognitive_loads = parse_task_profiles(payload.get("task_profiles"), schedulable)
+    rest_blocks = parse_rest_blocks(payload.get("rest_blocks"))
+    locked_rests = [(rb["start_dt"], rb["end_dt"]) for rb in rest_blocks if rb["locked"]]
+    blocking_items = _collect_blocking_items(base_cal, rest_blocks)
 
-    exact = _solve_exact(schedulable, effective_free, preds, succs, edges, reference)
+    # Free intervals from base calendar, deducting transit buffers and user-locked rest intervals (hard constraints)
+    raw_free = [(_instant(f["start"], "s"), _instant(f["end"], "e")) for f in base_cal["layers"]["free"]]
+    hard_deductions = merge_intervals([*transit_buffers, *locked_rests])
+    effective_free = _cut_intervals(raw_free, hard_deductions) if hard_deductions else raw_free
+
+    exact = _solve_exact(
+        schedulable,
+        effective_free,
+        preds,
+        succs,
+        edges,
+        reference,
+        focus_intervals=focus_intervals,
+        cognitive_loads=cognitive_loads,
+        locked_rests=locked_rests,
+        blocking_items=blocking_items,
+        baseline_starts=baseline_starts,
+        objective=objective,
+    )
     schedule_entries: list[dict] = []
+    focus_breakdown: dict[str, dict[str, Any]] = {}
     if exact["validation"]["passed"]:
         tasks_by_id = {t["id"]: t for t in schedulable}
         for tid, blocks in exact["placement"].items():
+            dl = _instant(tasks_by_id[tid]["deadline_at"], "deadline")
+            last_end = max(e for _, e in blocks)
+            buf = _minutes(last_end, dl)
+            f_info = score_task_focus(blocks, cognitive_loads.get(tid, "medium"), focus_intervals)
+            focus_breakdown[tid] = f_info
             for s, e in blocks:
                 schedule_entries.append({
                     "task_id": tid,
@@ -631,6 +1045,9 @@ def solve_snapshot(payload: object) -> dict[str, Any]:
                     "start": _iso(s),
                     "end": _iso(e),
                     "minutes": _minutes(s, e),
+                    "cognitive_load": cognitive_loads.get(tid, "medium"),
+                    "deadline_buffer_minutes": buf,
+                    "focus_score": f_info["score"],
                 })
         schedule_entries.sort(key=lambda item: (item["start"], item["end"], item["task_id"]))
 
@@ -647,10 +1064,18 @@ def solve_snapshot(payload: object) -> dict[str, Any]:
             "max_nodes": MAX_SEARCH_NODES,
             "transit_minutes": transit_minutes,
             "dependency_count": len(edges),
+            "focus_window_count": len(focus_intervals),
+            "locked_rest_count": len(locked_rests),
+            "objective": "focus_first" if objective == "default" and focus_intervals else objective,
         },
         "schedule": schedule_entries,
         "validation": exact["validation"],
         "reason": exact["reason"],
+        "focus_summary": {
+            "total_score": exact.get("focus_score", 0),
+            "by_task": focus_breakdown,
+        },
+        "missing_windows": exact.get("missing_windows", []),
         "transit_warnings": transit_warnings,
         "pareto_plans": pareto,
         "base_conflict_count": len(base_cal["conflicts"]),

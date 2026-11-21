@@ -1,0 +1,1498 @@
+{
+  "schema_version": 1,
+  "backend_version": "1.29",
+  "base_commit": "32619f0",
+  "fixtures": {
+    "success_replan": {
+      "description": "临时加会打断原上午排程 + 锁定午休（硬约束）+ 下午高专注/晚间低专注匹配 → 两套方案均过底线，按「先保底线、再少改、最后看专注」推荐 buffer_first（总移动 260m < 710m），确认后画卷重算逐段一致（叠墨 0）",
+      "preview_request": {
+        "snapshot": {
+          "schema_version": 3,
+          "revision": 4,
+          "timezone": "Asia/Shanghai",
+          "reference_time": "2026-11-25T08:00:00+08:00",
+          "sources": [],
+          "daily_window": [
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            }
+          ],
+          "routines_confirmed": true,
+          "routines": [
+            {
+              "id": "r-math",
+              "title": "高等数学",
+              "weekdays": [
+                3
+              ],
+              "start": "08:00",
+              "end": "09:50",
+              "from": "2026-09-07",
+              "until": null,
+              "week_interval": 1,
+              "skip_dates": [],
+              "location": "主楼301",
+              "source_id": null
+            }
+          ],
+          "free_adjustments": [],
+          "events": [],
+          "tasks": [
+            {
+              "id": "t-math-hw",
+              "title": "完成高数证明题",
+              "deadline_at": "2026-11-25T21:00:00+08:00",
+              "estimate_minutes": 90,
+              "splittable": false,
+              "min_block_minutes": 90,
+              "earliest_start_at": null,
+              "priority": 80,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            },
+            {
+              "id": "t-slides",
+              "title": "整理社团招新素材",
+              "deadline_at": "2026-11-25T22:00:00+08:00",
+              "estimate_minutes": 60,
+              "splittable": true,
+              "min_block_minutes": 30,
+              "earliest_start_at": null,
+              "priority": 40,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            }
+          ]
+        },
+        "range": {
+          "from": "2026-11-23",
+          "to": "2026-11-29"
+        },
+        "disruptions": [
+          {
+            "id": "e-disrupt-1",
+            "title": "临时项目复盘会",
+            "start_at": "2026-11-25T10:00:00+08:00",
+            "end_at": "2026-11-25T11:30:00+08:00",
+            "location": "新闻楼402"
+          }
+        ],
+        "rest_blocks": [
+          {
+            "id": "rest-lunch",
+            "label": "午休恢复",
+            "start": "2026-11-25T12:30:00+08:00",
+            "end": "2026-11-25T14:00:00+08:00",
+            "locked": true
+          }
+        ],
+        "focus_windows": [
+          {
+            "date": "2026-11-25",
+            "start": "14:00",
+            "end": "16:00",
+            "level": "high",
+            "label": "下午黄金专注"
+          },
+          {
+            "date": "2026-11-25",
+            "start": "19:00",
+            "end": "21:00",
+            "level": "low",
+            "label": "晚间轻度整理"
+          }
+        ],
+        "task_profiles": {
+          "t-math-hw": {
+            "cognitive_load": "high"
+          },
+          "t-slides": {
+            "cognitive_load": "low"
+          }
+        },
+        "include_starter": true,
+        "starter_mode": "rules"
+      },
+      "preview_response": {
+        "schema_version": 1,
+        "status": "ready",
+        "feasible": true,
+        "confirmable": true,
+        "needs_decision": true,
+        "decision_reason": "本次变化影响了 2 项任务，按「先保底线、再少改、最后看专注」推荐「截止缓冲优先方案」（总移动 260 分钟、最小缓冲 330 分钟），共 2 套备选方案供取舍。",
+        "focus_hint": null,
+        "base_revision": 4,
+        "snapshot_fingerprint": "sha256:3d1187c6ccabb0a9363bbca6",
+        "range": {
+          "from": "2026-11-23",
+          "to": "2026-11-29"
+        },
+        "recommended_plan_id": "buffer_first",
+        "hard_constraints_checked": [
+          "deadlines",
+          "confirmed_routines_and_appointments",
+          "dag_dependencies",
+          "user_locked_rest_blocks"
+        ],
+        "candidate_plans": [
+          {
+            "plan_id": "buffer_first",
+            "name": "截止缓冲优先方案",
+            "objective": "buffer_first",
+            "recommended": true,
+            "tradeoff_vs_recommended": null,
+            "summary": "全部 2 项任务可行（移动 2 项、总移动量 260 分钟），专注匹配分 330，最小截止缓冲 330 分钟。",
+            "metrics": {
+              "scheduled_tasks": 2,
+              "moved_tasks": 2,
+              "moved_minutes": 260,
+              "focus_score": 330,
+              "min_deadline_buffer_minutes": 330,
+              "total_deadline_buffer_minutes": 900,
+              "required_buffer_floor_minutes": 30,
+              "passes_baseline": true,
+              "baseline_violations": [],
+              "locked_rest_minutes": 90,
+              "transit_warnings": 0
+            },
+            "schedule": [
+              {
+                "task_id": "t-slides",
+                "title": "整理社团招新素材",
+                "start": "2026-11-25T11:30:00+08:00",
+                "end": "2026-11-25T12:30:00+08:00",
+                "minutes": 60,
+                "cognitive_load": "low",
+                "deadline_buffer_minutes": 570,
+                "focus_score": 60
+              },
+              {
+                "task_id": "t-math-hw",
+                "title": "完成高数证明题",
+                "start": "2026-11-25T14:00:00+08:00",
+                "end": "2026-11-25T15:30:00+08:00",
+                "minutes": 90,
+                "cognitive_load": "high",
+                "deadline_buffer_minutes": 330,
+                "focus_score": 270
+              }
+            ],
+            "expected_schedule": [
+              {
+                "task_id": "t-math-hw",
+                "start": "2026-11-25T14:00:00+08:00",
+                "end": "2026-11-25T15:30:00+08:00"
+              },
+              {
+                "task_id": "t-slides",
+                "start": "2026-11-25T11:30:00+08:00",
+                "end": "2026-11-25T12:30:00+08:00"
+              }
+            ],
+            "task_changes": [
+              {
+                "task_id": "t-math-hw",
+                "title": "完成高数证明题",
+                "cognitive_load": "high",
+                "before": [
+                  {
+                    "start": "2026-11-25T09:50:00+08:00",
+                    "end": "2026-11-25T11:20:00+08:00",
+                    "minutes": 90
+                  }
+                ],
+                "after": [
+                  {
+                    "start": "2026-11-25T14:00:00+08:00",
+                    "end": "2026-11-25T15:30:00+08:00",
+                    "minutes": 90
+                  }
+                ],
+                "changed": true,
+                "moved_minutes": 250,
+                "move_reason": "原时段被临时打断「临时项目复盘会」占用，改排至 11月25日 14:00–15:30。",
+                "deadline_at": "2026-11-25T21:00:00+08:00",
+                "deadline_buffer_minutes": 330,
+                "focus_match": {
+                  "cognitive_load": "high",
+                  "score": 270,
+                  "matched_minutes": {
+                    "high": 90,
+                    "medium": 0,
+                    "low": 0,
+                    "neutral": 0
+                  },
+                  "dominant_focus_level": "high",
+                  "matched_labels": [
+                    "下午黄金专注"
+                  ],
+                  "summary": "认知负荷「高」匹配至「下午黄金专注」（匹配分 270）。"
+                }
+              },
+              {
+                "task_id": "t-slides",
+                "title": "整理社团招新素材",
+                "cognitive_load": "low",
+                "before": [
+                  {
+                    "start": "2026-11-25T11:20:00+08:00",
+                    "end": "2026-11-25T12:20:00+08:00",
+                    "minutes": 60
+                  }
+                ],
+                "after": [
+                  {
+                    "start": "2026-11-25T11:30:00+08:00",
+                    "end": "2026-11-25T12:30:00+08:00",
+                    "minutes": 60
+                  }
+                ],
+                "changed": true,
+                "moved_minutes": 10,
+                "move_reason": "原时段被临时打断「临时项目复盘会」占用，改排至 11月25日 11:30–12:30。",
+                "deadline_at": "2026-11-25T22:00:00+08:00",
+                "deadline_buffer_minutes": 570,
+                "focus_match": {
+                  "cognitive_load": "low",
+                  "score": 60,
+                  "matched_minutes": {
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0,
+                    "neutral": 60
+                  },
+                  "dominant_focus_level": "neutral",
+                  "matched_labels": [],
+                  "summary": "认知负荷「低」落在常规留白时段（匹配分 60）。"
+                }
+              }
+            ],
+            "validation": {
+              "passed": true,
+              "errors": [],
+              "checked_constraints": [
+                "inside_derived_free_time",
+                "no_work_overlap",
+                "exact_estimate_minutes",
+                "earliest_and_deadline_bounds",
+                "splittable_and_min_block",
+                "dag_precedence_dependencies",
+                "respects_locked_rest_blocks"
+              ]
+            },
+            "calendar_verified": true,
+            "preview_token": "rpv1_08b03f601de1f7c8e83c783f",
+            "preview_snapshot": {
+              "schema_version": 3,
+              "revision": 4,
+              "timezone": "Asia/Shanghai",
+              "reference_time": "2026-11-25T08:00:00+08:00",
+              "sources": [],
+              "daily_window": [
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                }
+              ],
+              "routines_confirmed": true,
+              "routines": [
+                {
+                  "id": "r-math",
+                  "title": "高等数学",
+                  "weekdays": [
+                    3
+                  ],
+                  "start": "08:00",
+                  "end": "09:50",
+                  "from": "2026-09-07",
+                  "until": null,
+                  "week_interval": 1,
+                  "skip_dates": [],
+                  "location": "主楼301",
+                  "source_id": null
+                }
+              ],
+              "free_adjustments": [
+                {
+                  "id": "fa-rest-rest-lunch",
+                  "kind": "remove",
+                  "start_at": "2026-11-25T12:30:00+08:00",
+                  "end_at": "2026-11-25T14:00:00+08:00",
+                  "note": "锁定休息：午休恢复"
+                }
+              ],
+              "events": [
+                {
+                  "id": "e-disrupt-1",
+                  "kind": "temporary",
+                  "title": "临时项目复盘会",
+                  "start_at": "2026-11-25T10:00:00+08:00",
+                  "end_at": "2026-11-25T11:30:00+08:00",
+                  "location": "新闻楼402",
+                  "status": "active",
+                  "source_id": null,
+                  "evidence": [],
+                  "notes": [
+                    "重排状态变更：临时打断"
+                  ]
+                }
+              ],
+              "tasks": [
+                {
+                  "id": "t-math-hw",
+                  "title": "完成高数证明题",
+                  "deadline_at": "2026-11-25T21:00:00+08:00",
+                  "estimate_minutes": 90,
+                  "splittable": false,
+                  "min_block_minutes": 90,
+                  "earliest_start_at": "2026-11-25T14:00:00+08:00",
+                  "priority": 80,
+                  "status": "active",
+                  "location": null,
+                  "materials": [],
+                  "source_id": null,
+                  "evidence": [],
+                  "notes": []
+                },
+                {
+                  "id": "t-slides",
+                  "title": "整理社团招新素材",
+                  "deadline_at": "2026-11-25T22:00:00+08:00",
+                  "estimate_minutes": 60,
+                  "splittable": true,
+                  "min_block_minutes": 30,
+                  "earliest_start_at": "2026-11-25T11:30:00+08:00",
+                  "priority": 40,
+                  "status": "active",
+                  "location": null,
+                  "materials": [],
+                  "source_id": null,
+                  "evidence": [],
+                  "notes": []
+                }
+              ]
+            }
+          },
+          {
+            "plan_id": "focus_matched",
+            "name": "专注匹配优先方案",
+            "objective": "focus_first",
+            "recommended": false,
+            "tradeoff_vs_recommended": "多改 450 分钟，换来「整理社团招新素材」排进晚间轻度整理。",
+            "summary": "全部 2 项任务可行（移动 2 项、总移动量 710 分钟），专注匹配分 390，最小截止缓冲 120 分钟。",
+            "metrics": {
+              "scheduled_tasks": 2,
+              "moved_tasks": 2,
+              "moved_minutes": 710,
+              "focus_score": 390,
+              "min_deadline_buffer_minutes": 120,
+              "total_deadline_buffer_minutes": 450,
+              "required_buffer_floor_minutes": 30,
+              "passes_baseline": true,
+              "baseline_violations": [],
+              "locked_rest_minutes": 90,
+              "transit_warnings": 0
+            },
+            "schedule": [
+              {
+                "task_id": "t-math-hw",
+                "title": "完成高数证明题",
+                "start": "2026-11-25T14:00:00+08:00",
+                "end": "2026-11-25T15:30:00+08:00",
+                "minutes": 90,
+                "cognitive_load": "high",
+                "deadline_buffer_minutes": 330,
+                "focus_score": 270
+              },
+              {
+                "task_id": "t-slides",
+                "title": "整理社团招新素材",
+                "start": "2026-11-25T19:00:00+08:00",
+                "end": "2026-11-25T20:00:00+08:00",
+                "minutes": 60,
+                "cognitive_load": "low",
+                "deadline_buffer_minutes": 120,
+                "focus_score": 120
+              }
+            ],
+            "expected_schedule": [
+              {
+                "task_id": "t-math-hw",
+                "start": "2026-11-25T14:00:00+08:00",
+                "end": "2026-11-25T15:30:00+08:00"
+              },
+              {
+                "task_id": "t-slides",
+                "start": "2026-11-25T19:00:00+08:00",
+                "end": "2026-11-25T20:00:00+08:00"
+              }
+            ],
+            "task_changes": [
+              {
+                "task_id": "t-math-hw",
+                "title": "完成高数证明题",
+                "cognitive_load": "high",
+                "before": [
+                  {
+                    "start": "2026-11-25T09:50:00+08:00",
+                    "end": "2026-11-25T11:20:00+08:00",
+                    "minutes": 90
+                  }
+                ],
+                "after": [
+                  {
+                    "start": "2026-11-25T14:00:00+08:00",
+                    "end": "2026-11-25T15:30:00+08:00",
+                    "minutes": 90
+                  }
+                ],
+                "changed": true,
+                "moved_minutes": 250,
+                "move_reason": "原时段被临时打断「临时项目复盘会」占用；匹配「高」认知负荷至「下午黄金专注」，改排至 11月25日 14:00–15:30。",
+                "deadline_at": "2026-11-25T21:00:00+08:00",
+                "deadline_buffer_minutes": 330,
+                "focus_match": {
+                  "cognitive_load": "high",
+                  "score": 270,
+                  "matched_minutes": {
+                    "high": 90,
+                    "medium": 0,
+                    "low": 0,
+                    "neutral": 0
+                  },
+                  "dominant_focus_level": "high",
+                  "matched_labels": [
+                    "下午黄金专注"
+                  ],
+                  "summary": "认知负荷「高」匹配至「下午黄金专注」（匹配分 270）。"
+                }
+              },
+              {
+                "task_id": "t-slides",
+                "title": "整理社团招新素材",
+                "cognitive_load": "low",
+                "before": [
+                  {
+                    "start": "2026-11-25T11:20:00+08:00",
+                    "end": "2026-11-25T12:20:00+08:00",
+                    "minutes": 60
+                  }
+                ],
+                "after": [
+                  {
+                    "start": "2026-11-25T19:00:00+08:00",
+                    "end": "2026-11-25T20:00:00+08:00",
+                    "minutes": 60
+                  }
+                ],
+                "changed": true,
+                "moved_minutes": 460,
+                "move_reason": "原时段被临时打断「临时项目复盘会」占用；匹配「低」认知负荷至「晚间轻度整理」，改排至 11月25日 19:00–20:00。",
+                "deadline_at": "2026-11-25T22:00:00+08:00",
+                "deadline_buffer_minutes": 120,
+                "focus_match": {
+                  "cognitive_load": "low",
+                  "score": 120,
+                  "matched_minutes": {
+                    "high": 0,
+                    "medium": 0,
+                    "low": 60,
+                    "neutral": 0
+                  },
+                  "dominant_focus_level": "low",
+                  "matched_labels": [
+                    "晚间轻度整理"
+                  ],
+                  "summary": "认知负荷「低」匹配至「晚间轻度整理」（匹配分 120）。"
+                }
+              }
+            ],
+            "validation": {
+              "passed": true,
+              "errors": [],
+              "checked_constraints": [
+                "inside_derived_free_time",
+                "no_work_overlap",
+                "exact_estimate_minutes",
+                "earliest_and_deadline_bounds",
+                "splittable_and_min_block",
+                "dag_precedence_dependencies",
+                "respects_locked_rest_blocks"
+              ]
+            },
+            "calendar_verified": true,
+            "preview_token": "rpv1_baadf4a7719faea567e054be",
+            "preview_snapshot": {
+              "schema_version": 3,
+              "revision": 4,
+              "timezone": "Asia/Shanghai",
+              "reference_time": "2026-11-25T08:00:00+08:00",
+              "sources": [],
+              "daily_window": [
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                },
+                {
+                  "start": "08:00",
+                  "end": "22:00"
+                }
+              ],
+              "routines_confirmed": true,
+              "routines": [
+                {
+                  "id": "r-math",
+                  "title": "高等数学",
+                  "weekdays": [
+                    3
+                  ],
+                  "start": "08:00",
+                  "end": "09:50",
+                  "from": "2026-09-07",
+                  "until": null,
+                  "week_interval": 1,
+                  "skip_dates": [],
+                  "location": "主楼301",
+                  "source_id": null
+                }
+              ],
+              "free_adjustments": [
+                {
+                  "id": "fa-rest-rest-lunch",
+                  "kind": "remove",
+                  "start_at": "2026-11-25T12:30:00+08:00",
+                  "end_at": "2026-11-25T14:00:00+08:00",
+                  "note": "锁定休息：午休恢复"
+                }
+              ],
+              "events": [
+                {
+                  "id": "e-disrupt-1",
+                  "kind": "temporary",
+                  "title": "临时项目复盘会",
+                  "start_at": "2026-11-25T10:00:00+08:00",
+                  "end_at": "2026-11-25T11:30:00+08:00",
+                  "location": "新闻楼402",
+                  "status": "active",
+                  "source_id": null,
+                  "evidence": [],
+                  "notes": [
+                    "重排状态变更：临时打断"
+                  ]
+                }
+              ],
+              "tasks": [
+                {
+                  "id": "t-math-hw",
+                  "title": "完成高数证明题",
+                  "deadline_at": "2026-11-25T21:00:00+08:00",
+                  "estimate_minutes": 90,
+                  "splittable": false,
+                  "min_block_minutes": 90,
+                  "earliest_start_at": "2026-11-25T14:00:00+08:00",
+                  "priority": 80,
+                  "status": "active",
+                  "location": null,
+                  "materials": [],
+                  "source_id": null,
+                  "evidence": [],
+                  "notes": []
+                },
+                {
+                  "id": "t-slides",
+                  "title": "整理社团招新素材",
+                  "deadline_at": "2026-11-25T22:00:00+08:00",
+                  "estimate_minutes": 60,
+                  "splittable": true,
+                  "min_block_minutes": 30,
+                  "earliest_start_at": "2026-11-25T19:00:00+08:00",
+                  "priority": 40,
+                  "status": "active",
+                  "location": null,
+                  "materials": [],
+                  "source_id": null,
+                  "evidence": [],
+                  "notes": []
+                }
+              ]
+            }
+          }
+        ],
+        "omitted_plans": [
+          {
+            "plan_id": "minimal_change",
+            "name": "最少改动方案",
+            "reason": "duplicate_of",
+            "same_as": "buffer_first",
+            "detail": "与「截止缓冲优先方案」排程结果完全一致，已合并去重。"
+          }
+        ],
+        "missing_windows": [],
+        "calibration_notes": [],
+        "five_minute_starter": {
+          "schema_version": 1,
+          "task_id": "t-slides",
+          "title": "整理社团招新素材",
+          "kind": "作品",
+          "duration_minutes": 5,
+          "resting": false,
+          "resting_label": null,
+          "resting_until": null,
+          "action": "建好「整理社团招新素材」素材文件夹，把第 1 个核心素材或草图框架摆进工程里（5 分钟）。",
+          "mode_used": "rules"
+        },
+        "confirm_hint": {
+          "endpoint": "/api/v3/replan/confirm",
+          "required_fields": [
+            "snapshot",
+            "base_revision",
+            "snapshot_fingerprint",
+            "plan_id",
+            "preview_token",
+            "preview_snapshot",
+            "expected_schedule"
+          ]
+        }
+      },
+      "confirm_request": {
+        "snapshot": {
+          "schema_version": 3,
+          "revision": 4,
+          "timezone": "Asia/Shanghai",
+          "reference_time": "2026-11-25T08:00:00+08:00",
+          "sources": [],
+          "daily_window": [
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            }
+          ],
+          "routines_confirmed": true,
+          "routines": [
+            {
+              "id": "r-math",
+              "title": "高等数学",
+              "weekdays": [
+                3
+              ],
+              "start": "08:00",
+              "end": "09:50",
+              "from": "2026-09-07",
+              "until": null,
+              "week_interval": 1,
+              "skip_dates": [],
+              "location": "主楼301",
+              "source_id": null
+            }
+          ],
+          "free_adjustments": [],
+          "events": [],
+          "tasks": [
+            {
+              "id": "t-math-hw",
+              "title": "完成高数证明题",
+              "deadline_at": "2026-11-25T21:00:00+08:00",
+              "estimate_minutes": 90,
+              "splittable": false,
+              "min_block_minutes": 90,
+              "earliest_start_at": null,
+              "priority": 80,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            },
+            {
+              "id": "t-slides",
+              "title": "整理社团招新素材",
+              "deadline_at": "2026-11-25T22:00:00+08:00",
+              "estimate_minutes": 60,
+              "splittable": true,
+              "min_block_minutes": 30,
+              "earliest_start_at": null,
+              "priority": 40,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            }
+          ]
+        },
+        "range": {
+          "from": "2026-11-23",
+          "to": "2026-11-29"
+        },
+        "base_revision": 4,
+        "snapshot_fingerprint": "sha256:3d1187c6ccabb0a9363bbca6",
+        "plan_id": "buffer_first",
+        "preview_token": "rpv1_08b03f601de1f7c8e83c783f",
+        "preview_snapshot": {
+          "schema_version": 3,
+          "revision": 4,
+          "timezone": "Asia/Shanghai",
+          "reference_time": "2026-11-25T08:00:00+08:00",
+          "sources": [],
+          "daily_window": [
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            }
+          ],
+          "routines_confirmed": true,
+          "routines": [
+            {
+              "id": "r-math",
+              "title": "高等数学",
+              "weekdays": [
+                3
+              ],
+              "start": "08:00",
+              "end": "09:50",
+              "from": "2026-09-07",
+              "until": null,
+              "week_interval": 1,
+              "skip_dates": [],
+              "location": "主楼301",
+              "source_id": null
+            }
+          ],
+          "free_adjustments": [
+            {
+              "id": "fa-rest-rest-lunch",
+              "kind": "remove",
+              "start_at": "2026-11-25T12:30:00+08:00",
+              "end_at": "2026-11-25T14:00:00+08:00",
+              "note": "锁定休息：午休恢复"
+            }
+          ],
+          "events": [
+            {
+              "id": "e-disrupt-1",
+              "kind": "temporary",
+              "title": "临时项目复盘会",
+              "start_at": "2026-11-25T10:00:00+08:00",
+              "end_at": "2026-11-25T11:30:00+08:00",
+              "location": "新闻楼402",
+              "status": "active",
+              "source_id": null,
+              "evidence": [],
+              "notes": [
+                "重排状态变更：临时打断"
+              ]
+            }
+          ],
+          "tasks": [
+            {
+              "id": "t-math-hw",
+              "title": "完成高数证明题",
+              "deadline_at": "2026-11-25T21:00:00+08:00",
+              "estimate_minutes": 90,
+              "splittable": false,
+              "min_block_minutes": 90,
+              "earliest_start_at": "2026-11-25T14:00:00+08:00",
+              "priority": 80,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            },
+            {
+              "id": "t-slides",
+              "title": "整理社团招新素材",
+              "deadline_at": "2026-11-25T22:00:00+08:00",
+              "estimate_minutes": 60,
+              "splittable": true,
+              "min_block_minutes": 30,
+              "earliest_start_at": "2026-11-25T11:30:00+08:00",
+              "priority": 40,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            }
+          ]
+        },
+        "expected_schedule": [
+          {
+            "task_id": "t-math-hw",
+            "start": "2026-11-25T14:00:00+08:00",
+            "end": "2026-11-25T15:30:00+08:00"
+          },
+          {
+            "task_id": "t-slides",
+            "start": "2026-11-25T11:30:00+08:00",
+            "end": "2026-11-25T12:30:00+08:00"
+          }
+        ]
+      },
+      "confirm_response": {
+        "schema_version": 1,
+        "confirmed": true,
+        "plan_id": "buffer_first",
+        "previous_revision": 4,
+        "new_revision": 5,
+        "snapshot": {
+          "schema_version": 3,
+          "revision": 5,
+          "timezone": "Asia/Shanghai",
+          "reference_time": "2026-11-25T08:00:00+08:00",
+          "sources": [],
+          "daily_window": [
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            }
+          ],
+          "routines_confirmed": true,
+          "routines": [
+            {
+              "id": "r-math",
+              "title": "高等数学",
+              "weekdays": [
+                3
+              ],
+              "start": "08:00",
+              "end": "09:50",
+              "from": "2026-09-07",
+              "until": null,
+              "week_interval": 1,
+              "skip_dates": [],
+              "location": "主楼301",
+              "source_id": null
+            }
+          ],
+          "free_adjustments": [
+            {
+              "id": "fa-rest-rest-lunch",
+              "kind": "remove",
+              "start_at": "2026-11-25T12:30:00+08:00",
+              "end_at": "2026-11-25T14:00:00+08:00",
+              "note": "锁定休息：午休恢复"
+            }
+          ],
+          "events": [
+            {
+              "id": "e-disrupt-1",
+              "kind": "temporary",
+              "title": "临时项目复盘会",
+              "start_at": "2026-11-25T10:00:00+08:00",
+              "end_at": "2026-11-25T11:30:00+08:00",
+              "location": "新闻楼402",
+              "status": "active",
+              "source_id": null,
+              "evidence": [],
+              "notes": [
+                "重排状态变更：临时打断"
+              ]
+            }
+          ],
+          "tasks": [
+            {
+              "id": "t-math-hw",
+              "title": "完成高数证明题",
+              "deadline_at": "2026-11-25T21:00:00+08:00",
+              "estimate_minutes": 90,
+              "splittable": false,
+              "min_block_minutes": 90,
+              "earliest_start_at": "2026-11-25T14:00:00+08:00",
+              "priority": 80,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            },
+            {
+              "id": "t-slides",
+              "title": "整理社团招新素材",
+              "deadline_at": "2026-11-25T22:00:00+08:00",
+              "estimate_minutes": 60,
+              "splittable": true,
+              "min_block_minutes": 30,
+              "earliest_start_at": "2026-11-25T11:30:00+08:00",
+              "priority": 40,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            }
+          ]
+        },
+        "calendar_validation": {
+          "passed": true,
+          "errors": []
+        },
+        "calendar_match": {
+          "matched": true,
+          "verified_tasks": 2,
+          "mismatches": []
+        },
+        "summary": "已确认应用方案「buffer_first」并通过画卷逐段核对，清单版本由 4 升级至 5。"
+      }
+    },
+    "infeasible_before_deadline": {
+      "description": "专业课 + 临时谈话 + 锁定喘息缓冲占去 3 小时，18:00 截止前仅剩 60 分钟而任务需 120 分钟 → 返回 infeasible 与明确缺少的时间窗口",
+      "preview_request": {
+        "snapshot": {
+          "schema_version": 3,
+          "revision": 4,
+          "timezone": "Asia/Shanghai",
+          "reference_time": "2026-11-25T13:30:00+08:00",
+          "sources": [],
+          "daily_window": [
+            {
+              "start": "14:00",
+              "end": "18:00"
+            },
+            {
+              "start": "14:00",
+              "end": "18:00"
+            },
+            {
+              "start": "14:00",
+              "end": "18:00"
+            },
+            {
+              "start": "14:00",
+              "end": "18:00"
+            },
+            {
+              "start": "14:00",
+              "end": "18:00"
+            },
+            {
+              "start": "14:00",
+              "end": "18:00"
+            },
+            {
+              "start": "14:00",
+              "end": "18:00"
+            }
+          ],
+          "routines_confirmed": true,
+          "routines": [
+            {
+              "id": "r-major",
+              "title": "专业课",
+              "weekdays": [
+                3
+              ],
+              "start": "14:00",
+              "end": "15:00",
+              "from": "2026-09-07",
+              "until": null,
+              "week_interval": 1,
+              "skip_dates": [],
+              "location": "新闻楼402",
+              "source_id": null
+            }
+          ],
+          "free_adjustments": [],
+          "events": [],
+          "tasks": [
+            {
+              "id": "t-report",
+              "title": "提交实验报告",
+              "deadline_at": "2026-11-25T18:00:00+08:00",
+              "estimate_minutes": 120,
+              "splittable": true,
+              "min_block_minutes": 30,
+              "earliest_start_at": null,
+              "priority": 90,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            }
+          ]
+        },
+        "range": {
+          "from": "2026-11-23",
+          "to": "2026-11-29"
+        },
+        "disruptions": [
+          {
+            "id": "e-talk",
+            "title": "临时辅导员谈话",
+            "start_at": "2026-11-25T15:00:00+08:00",
+            "end_at": "2026-11-25T16:30:00+08:00",
+            "location": "学活105"
+          }
+        ],
+        "rest_blocks": [
+          {
+            "id": "rest-breath",
+            "label": "喘息缓冲",
+            "start": "2026-11-25T16:30:00+08:00",
+            "end": "2026-11-25T17:00:00+08:00",
+            "locked": true
+          }
+        ]
+      },
+      "preview_response": {
+        "schema_version": 1,
+        "status": "infeasible",
+        "feasible": false,
+        "confirmable": false,
+        "needs_decision": true,
+        "decision_reason": "存在截止前无法排下的任务，需要你决定释放空档、调整锁定休息或延后截止。",
+        "base_revision": 4,
+        "snapshot_fingerprint": "sha256:50fe012373083ec2be770cb4",
+        "range": {
+          "from": "2026-11-23",
+          "to": "2026-11-29"
+        },
+        "reason": "在给定留白、连续块、锁定休息、通勤与前置依赖约束下无可行解。",
+        "hard_constraints_checked": [
+          "deadlines",
+          "confirmed_routines_and_appointments",
+          "dag_dependencies",
+          "user_locked_rest_blocks"
+        ],
+        "candidate_plans": [],
+        "omitted_plans": [],
+        "focus_hint": null,
+        "missing_windows": [
+          {
+            "task_id": "t-report",
+            "title": "提交实验报告",
+            "window_start": "2026-11-25T13:30:00+08:00",
+            "deadline_at": "2026-11-25T18:00:00+08:00",
+            "required_minutes": 120,
+            "available_minutes": 60,
+            "longest_contiguous_minutes": 60,
+            "shortfall_minutes": 60,
+            "splittable": true,
+            "blocking_items": [
+              {
+                "title": "专业课",
+                "kind": "routine",
+                "start": "2026-11-25T14:00:00+08:00",
+                "end": "2026-11-25T15:00:00+08:00"
+              },
+              {
+                "title": "临时辅导员谈话",
+                "kind": "temporary",
+                "start": "2026-11-25T15:00:00+08:00",
+                "end": "2026-11-25T16:30:00+08:00"
+              },
+              {
+                "title": "锁定休息：喘息缓冲",
+                "kind": "locked_rest",
+                "start": "2026-11-25T16:30:00+08:00",
+                "end": "2026-11-25T17:00:00+08:00"
+              }
+            ],
+            "summary": "「提交实验报告」在 11月25日 18:00 截止前需要 120 分钟，但 11月25日 13:30–11月25日 18:00 内仅剩 60 分钟可用留白，缺少至少 60 分钟时间窗口。"
+          }
+        ],
+        "calibration_notes": [],
+        "five_minute_starter": null
+      }
+    },
+    "stale_snapshot_conflict": {
+      "description": "预览基于 revision 4，确认前清单已更新至 revision 5 → 返回 HTTP 409 stale_preview 拒绝应用过期预览",
+      "confirm_request": {
+        "snapshot": {
+          "schema_version": 3,
+          "revision": 5,
+          "timezone": "Asia/Shanghai",
+          "reference_time": "2026-11-25T08:00:00+08:00",
+          "sources": [],
+          "daily_window": [
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            }
+          ],
+          "routines_confirmed": true,
+          "routines": [
+            {
+              "id": "r-math",
+              "title": "高等数学",
+              "weekdays": [
+                3
+              ],
+              "start": "08:00",
+              "end": "09:50",
+              "from": "2026-09-07",
+              "until": null,
+              "week_interval": 1,
+              "skip_dates": [],
+              "location": "主楼301",
+              "source_id": null
+            }
+          ],
+          "free_adjustments": [],
+          "events": [],
+          "tasks": [
+            {
+              "id": "t-math-hw",
+              "title": "完成高数证明题",
+              "deadline_at": "2026-11-25T21:00:00+08:00",
+              "estimate_minutes": 90,
+              "splittable": false,
+              "min_block_minutes": 90,
+              "earliest_start_at": null,
+              "priority": 80,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": [
+                "用户在另一标签页做了更新"
+              ]
+            },
+            {
+              "id": "t-slides",
+              "title": "整理社团招新素材",
+              "deadline_at": "2026-11-25T22:00:00+08:00",
+              "estimate_minutes": 60,
+              "splittable": true,
+              "min_block_minutes": 30,
+              "earliest_start_at": null,
+              "priority": 40,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            }
+          ]
+        },
+        "range": {
+          "from": "2026-11-23",
+          "to": "2026-11-29"
+        },
+        "base_revision": 4,
+        "snapshot_fingerprint": "sha256:3d1187c6ccabb0a9363bbca6",
+        "plan_id": "buffer_first",
+        "preview_token": "rpv1_08b03f601de1f7c8e83c783f",
+        "preview_snapshot": {
+          "schema_version": 3,
+          "revision": 4,
+          "timezone": "Asia/Shanghai",
+          "reference_time": "2026-11-25T08:00:00+08:00",
+          "sources": [],
+          "daily_window": [
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            },
+            {
+              "start": "08:00",
+              "end": "22:00"
+            }
+          ],
+          "routines_confirmed": true,
+          "routines": [
+            {
+              "id": "r-math",
+              "title": "高等数学",
+              "weekdays": [
+                3
+              ],
+              "start": "08:00",
+              "end": "09:50",
+              "from": "2026-09-07",
+              "until": null,
+              "week_interval": 1,
+              "skip_dates": [],
+              "location": "主楼301",
+              "source_id": null
+            }
+          ],
+          "free_adjustments": [
+            {
+              "id": "fa-rest-rest-lunch",
+              "kind": "remove",
+              "start_at": "2026-11-25T12:30:00+08:00",
+              "end_at": "2026-11-25T14:00:00+08:00",
+              "note": "锁定休息：午休恢复"
+            }
+          ],
+          "events": [
+            {
+              "id": "e-disrupt-1",
+              "kind": "temporary",
+              "title": "临时项目复盘会",
+              "start_at": "2026-11-25T10:00:00+08:00",
+              "end_at": "2026-11-25T11:30:00+08:00",
+              "location": "新闻楼402",
+              "status": "active",
+              "source_id": null,
+              "evidence": [],
+              "notes": [
+                "重排状态变更：临时打断"
+              ]
+            }
+          ],
+          "tasks": [
+            {
+              "id": "t-math-hw",
+              "title": "完成高数证明题",
+              "deadline_at": "2026-11-25T21:00:00+08:00",
+              "estimate_minutes": 90,
+              "splittable": false,
+              "min_block_minutes": 90,
+              "earliest_start_at": "2026-11-25T14:00:00+08:00",
+              "priority": 80,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            },
+            {
+              "id": "t-slides",
+              "title": "整理社团招新素材",
+              "deadline_at": "2026-11-25T22:00:00+08:00",
+              "estimate_minutes": 60,
+              "splittable": true,
+              "min_block_minutes": 30,
+              "earliest_start_at": "2026-11-25T11:30:00+08:00",
+              "priority": 40,
+              "status": "active",
+              "location": null,
+              "materials": [],
+              "source_id": null,
+              "evidence": [],
+              "notes": []
+            }
+          ]
+        },
+        "expected_schedule": [
+          {
+            "task_id": "t-math-hw",
+            "start": "2026-11-25T14:00:00+08:00",
+            "end": "2026-11-25T15:30:00+08:00"
+          },
+          {
+            "task_id": "t-slides",
+            "start": "2026-11-25T11:30:00+08:00",
+            "end": "2026-11-25T12:30:00+08:00"
+          }
+        ]
+      },
+      "confirm_error": {
+        "http_status": 409,
+        "body": {
+          "error": "清单在生成预览后已发生变化（预览基于版本 4，当前已是版本 5），已拒绝应用过期预览，请重新生成重排预览。",
+          "code": "stale_preview",
+          "expected_revision": 4,
+          "current_revision": 5,
+          "requires_repreview": true
+        }
+      }
+    }
+  }
+}

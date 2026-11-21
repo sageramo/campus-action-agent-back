@@ -19,10 +19,11 @@ from .time_utils import get_zone
 
 PERSONAL_NOTE = "个人任务"
 SPLIT = re.compile(r"[\n。；;！!？?]+")
-MARKER = re.compile(r"提醒我|帮我记(?:住|一下)?|记得|别忘了|我(?:今天|明天|后天|今晚|明早|明晚|这周|周末)?(?:要|得|需要|想要?)|(?:今天|明天|后天|今晚|明早|明晚)(?:要|得|需要)|待办[:：]?")
+MARKER = re.compile(r"提醒我|帮我记(?:住|一下)?|记得|别忘了|我(?:今天|明天|后天|今晚|明早|明晚|这周|本周|下周|(?:这|本|下个?)?周末)?(?:要|得|需要|想要?)|(?:今天|明天|后天|今晚|明早|明晚|(?:这|本|下个?)?周末)(?:要|得|需要)|待办[:：]?")
 RELATIVE = {"今天": 0, "今日": 0, "今晚": 0, "今早": 0, "明天": 1, "明早": 1, "明晚": 1, "后天": 2, "大后天": 3}
 WEEKDAYS = "一二三四五六日天"
 DATE = re.compile(r"(?P<rel>大后天|后天|明天|明早|明晚|今天|今日|今晚|今早)"
+                  r"|(?P<weekend>(?:下个?|本|这)?周末)"
                   r"|(?P<next>下个?|本|这)?(?:周|星期|礼拜)(?P<wd>[一二三四五六日天])"
                   r"|(?<!\d)(?P<iy>\d{4})-(?P<im>\d{1,2})-(?P<id>\d{1,2})(?!\d)"
                   r"|(?:(?:(?P<y>\d{4})年\s*)?(?P<m>\d{1,2})月(?P<d>\d{1,2})[日号])"
@@ -40,7 +41,7 @@ GOING = re.compile(r"去|参加|开会|例会|组会|开.{0,12}会|见|上课|�
 NOISE = re.compile(r"^(?:提醒我|帮我记(?:住|一下)?|记得|别忘了|待办|我(?:要|得|需要|想要?)?|要|得|需要|请|截止)+|[，,]?\s*(?:大概|大约|约|预计|用时)$")
 # A notice reads "11月20日19:00 学术讲座"; a note to oneself reads "明天下午3点去取快递" or "周五前交报告".
 NOTICEY = re.compile(r"【|】|通知|同学们|各位|各班|请于|请各|请在|报名方式|联系人")
-COLLOQUIAL = re.compile(r"(?:(?:本|这)?周[一二三四五六日天])|大后天|后天|明天|明早|明晚|今天|今日|今晚|今早|(?:下个?)?(?:周|星期|礼拜)[一二三四五六日天]")
+COLLOQUIAL = re.compile(r"(?:(?:下个?|本|这)?周末)|(?:(?:本|这)?周[一二三四五六日天])|大后天|后天|明天|明早|明晚|今天|今日|今晚|今早|(?:下个?)?(?:周|星期|礼拜)[一二三四五六日天]")
 
 
 def _id(prefix: str) -> str:
@@ -53,9 +54,20 @@ def _today(reference_date: str | None) -> date:
     return datetime.now(get_zone()).date()
 
 
+def _weekend_range(label: str, today: date) -> tuple[date, date]:
+    monday = today - timedelta(days=today.weekday())
+    offset = 7 if "下" in label else 0
+    sat = monday + timedelta(days=5 + offset)
+    sun = sat + timedelta(days=1)
+    start = sat if offset else max(today, sat)
+    return start, sun
+
+
 def _day(match: re.Match[str], today: date) -> date:
     if match["rel"]:
         return today + timedelta(days=RELATIVE[match["rel"]])
+    if match["weekend"]:
+        return _weekend_range(match["weekend"], today)[1]
     if match["wd"]:
         target = WEEKDAYS.index(match["wd"]) if match["wd"] != "天" else 6
         delta = target - today.weekday()
@@ -100,7 +112,7 @@ def _title(sentence: str, spans: list[tuple[int, int]]) -> str:
     text = "".join([*pieces, sentence[cursor:]])
     for _ in range(3):
         text = NOISE.sub("", text.strip(" ，,、：:"))
-    text = re.sub(r"^(?:今天|明天|后天|今晚|这周|周末|上午|下午|晚上|在|把)+", "", text).strip(" ，,、：:")
+    text = re.sub(r"^(?:今天|明天|后天|今晚|这周|本周|下周|(?:下个?|本|这)?周末|上午|下午|晚上|在|把)+", "", text).strip(" ，,、：:")
     return text[:200]
 
 
@@ -114,7 +126,7 @@ def personal_item(sentence: str, today: date, source_id: str, lone: bool = False
         raise ValueError("固定课表或例会请在铺纸里添加。")
     if not explicit and (NOTICEY.search(sentence) or not lone or not COLLOQUIAL.match(sentence)):
         return None
-    if not explicit and re.search(r"吗$|呢$|怎么办|能不能|要不要|有空|好累|开心|难过|下雨|下雪", sentence):
+    if not explicit and re.search(r"吗$|呢$|[？?]$|怎么办|能不能|要不要|有没有|可不可以|是否|有空|好累|开心|难过|下雨|下雪", sentence):
         return None
     dates = list(DATE.finditer(sentence))
     durations = list(DURATION.finditer(sentence))
@@ -183,7 +195,11 @@ def personal_item(sentence: str, today: date, source_id: str, lone: bool = False
         deadline = _at(day, (23, 59, 0))
     earliest = None
     if deadline and not before:
-        start_of_day = _at(day or today, (0, 0, 0))
+        if len(dates) == 1 and dates[0]["weekend"]:
+            wk_start, _ = _weekend_range(dates[0]["weekend"], today)
+            start_of_day = _at(wk_start, (0, 0, 0))
+        else:
+            start_of_day = _at(day or today, (0, 0, 0))
         if start_of_day < deadline:
             earliest = start_of_day.isoformat()
     if deadline is None and len(notes) == 1:

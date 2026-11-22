@@ -461,7 +461,24 @@ STARTER_TEMPLATES: dict[str, str] = {
 
 STARTER_SYSTEM = """你是司序的执行起步教练。请为大学生当前要做的这一件事，生成一个零压力、5分钟内就能立刻动手完成的最小起步动作。
 要求：具体可执行、一句话（20–65字）、不空泛喊口号、不编造不存在的截止时间或材料。
+如果提供材料摘录，把它当作待阅读的资料，在摘录的范围内给出一个能动手的动作。
 只输出 JSON 对象：{"action":"具体5分钟起步动作"}。"""
+
+
+STARTER_MATERIAL_LIMIT = 6000
+STARTER_EXCERPT_LIMIT = 160
+MATERIAL_REQUIREMENT = re.compile(r"要求|须|至少|提交|评分|字数|格式|选题|截止|\brequire(?:ment|d)?\b|\bsubmit\b", re.I)
+
+
+def _starter_excerpts(material: object) -> list[str]:
+    if not isinstance(material, str) or len(material) > STARTER_MATERIAL_LIMIT:
+        raise ValueError(f"material_text 必须为不超过 {STARTER_MATERIAL_LIMIT} 字的文本")
+    # Keep verbatim, bounded excerpts. Lift assignment requirements ahead of incidental prose,
+    # while keeping the selected excerpts in the order in which they appeared in the source.
+    segments = re.split(r"\s*\n\s*|(?<=[。！？；!?;])\s*|(?<=\.)[ \t]+", material)
+    excerpts = list(dict.fromkeys(segment.strip()[:STARTER_EXCERPT_LIMIT].rstrip() for segment in segments if segment.strip()))
+    priority = sorted(range(len(excerpts)), key=lambda index: not MATERIAL_REQUIREMENT.search(excerpts[index]))
+    return [excerpts[index] for index in sorted(priority[:3])]
 
 
 def _active_rest_at(now_dt: datetime | None, rest_blocks: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -488,7 +505,14 @@ def generate_five_minute_starter(payload: object) -> dict[str, Any]:
         detected_kind or "",
         "打开「{title}」所需文件，把第 1 个可验证的小子步骤写下来并推进 5 分钟。",
     )
-    rule_action = template.format(title=title)
+    excerpts = _starter_excerpts(payload.get("material_text", ""))
+    action = template.format(title=title)
+    if excerpts:
+        action = {
+            "写作": "从下方选一条原文，改成草稿里的一个小节标题，再在标题下写两句你想说明的事。",
+            "阅读": "把下方最相关的一段用自己的话改写成一句话，再记下一个想核对的问题。",
+            "填报": "从下方原文找出一项需要提交的材料，在草稿里写下准备使用的文件名或还缺的信息。",
+        }.get(detected_kind, "从下方选一条原文，改写成一条具体待办，再记下一个还需核对的问题。")
 
     # Check whether user is currently inside a locked rest block
     resting = bool(payload.get("resting", False))
@@ -512,29 +536,20 @@ def generate_five_minute_starter(payload: object) -> dict[str, Any]:
         label = resting_label or "锁定休息"
         return f"当前正处于你锁定的「{label}」{until_text}，想歇就歇；休息结束后再：{step}"
 
-    if mode == "rules":
-        return {
-            "schema_version": 1,
-            "task_id": payload.get("task_id"),
+    if mode == "model":
+        prompt_data = {
             "title": title,
             "kind": detected_kind or "通用",
-            "duration_minutes": 5,
-            "resting": resting,
-            "resting_label": resting_label,
-            "resting_until": resting_until,
-            "action": _wrap_rest(rule_action),
-            "mode_used": "rules",
+            "estimate_minutes": payload.get("estimate_minutes"),
+            "deadline_at": payload.get("deadline_at"),
         }
-    prompt_data = {
-        "title": title,
-        "kind": detected_kind or "通用",
-        "estimate_minutes": payload.get("estimate_minutes"),
-        "deadline_at": payload.get("deadline_at"),
-    }
-    res = chat_json(STARTER_SYSTEM, json.dumps(prompt_data, ensure_ascii=False), max_tokens=220)
-    action = str(res.get("action") or "").strip()
-    if not (6 <= len(action) <= 160):
-        raise ExtractionServiceError("模型未返回可用的五分钟起步动作。", 502, "model_invalid_starter")
+        if excerpts:
+            prompt_data["material_excerpts"] = excerpts
+        res = chat_json(STARTER_SYSTEM, json.dumps(prompt_data, ensure_ascii=False), max_tokens=220)
+        action = str(res.get("action") or "").strip()
+        if not (6 <= len(action) <= 160):
+            raise ExtractionServiceError("模型未返回可用的五分钟起步动作。", 502, "model_invalid_starter")
+
     return {
         "schema_version": 1,
         "task_id": payload.get("task_id"),
@@ -545,7 +560,8 @@ def generate_five_minute_starter(payload: object) -> dict[str, Any]:
         "resting_label": resting_label,
         "resting_until": resting_until,
         "action": _wrap_rest(action),
-        "mode_used": "model",
+        "mode_used": mode,
+        **({"material_brief": {"excerpts": excerpts}} if excerpts else {}),
     }
 
 

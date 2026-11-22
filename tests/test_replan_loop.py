@@ -51,9 +51,10 @@ class ReplanLoopTests(unittest.TestCase):
     def test_health_declares_129_replan_and_focus_capabilities(self) -> None:
         with urlopen(f"{self.base_url}/api/health", timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        self.assertEqual(data["version"], "1.29.1")
+        self.assertEqual(data["version"], "1.30")
         self.assertIn("replan_loop_v1", data["capabilities"])
         self.assertIn("focus_cognitive_scheduling_v1", data["capabilities"])
+        self.assertIn("starter_material_v1", data["capabilities"])
 
     def test_fixture_1_success_replan_confirm_and_calendar_exact_block_match(self) -> None:
         fx = self.fixture_doc["fixtures"]["success_replan"]
@@ -549,6 +550,31 @@ class ReplanLoopTests(unittest.TestCase):
             m_res = process_post("/api/v3/starter", {"title": "写操作系统实验报告", "mode": "model"})
         self.assertEqual(m_res["mode_used"], "model")
         self.assertIn("实验报告模板", m_res["action"])
+
+    def test_starter_selects_verbatim_material_excerpts_in_source_order(self) -> None:
+        material = "课程概览。\n推荐参考书。\n至少选两张照片。\n正文须标明拍摄场景。\n提交 PDF。"
+        with patch("campus_agent.replan.chat_json") as model:
+            status, result = _post_json(f"{self.base_url}/api/v3/starter", {
+                "title": "写摄影分析报告", "material_text": material, "mode": "rules",
+            })
+        self.assertEqual(status, 200)
+        self.assertEqual(result["material_brief"]["excerpts"], ["至少选两张照片。", "正文须标明拍摄场景。", "提交 PDF。"])
+        self.assertTrue(all(text in material for text in result["material_brief"]["excerpts"]))
+        self.assertIn("小节标题", result["action"])
+        model.assert_not_called()
+
+    def test_starter_material_is_optional_bounded_and_sent_as_excerpts_in_model_mode(self) -> None:
+        route = "/api/v3/starter"
+        for invalid in (["段落"], "字" * 6001):
+            status, answer = _post_json(f"{self.base_url}{route}", {"title": "复习", "material_text": invalid})
+            self.assertEqual(status, 400)
+            self.assertIn("material_text", answer["error"])
+        self.assertNotIn("material_brief", process_post(route, {"title": "复习", "material_text": " \n "}))
+        with patch("campus_agent.replan.chat_json", return_value={"action": "先把材料里的一句话读一遍。"}) as model:
+            result = process_post(route, {"title": "复习", "material_text": "原" * 6000, "mode": "model"})
+        expected = ["原" * 160]
+        self.assertEqual(result["material_brief"]["excerpts"], expected)
+        self.assertEqual(json.loads(model.call_args.args[1])["material_excerpts"], expected)
 
     def test_direct_confirm_raises_conflict_error_on_revision_mismatch(self) -> None:
         fx = self.fixture_doc["fixtures"]["stale_snapshot_conflict"]

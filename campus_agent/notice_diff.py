@@ -165,6 +165,35 @@ def _latest_unambiguous_target(snapshot: dict, matched_ids: set[str]) -> tuple[s
     return all_active[0] if len(all_active) == 1 else None
 
 
+CANCEL_NOISE_RE = re.compile(
+    r"(?:(?:消息|通知|活动|讲座|会议|比赛|日程|安排|那条|这条|刚才那(?:条|场|个|件)?|刚才的|那(?:场|个|件)|这(?:场|个|件)|上次那(?:条|场|个)?)?"
+    r"(?:发错了|写错了|搞错了|弄错了|取消|停办|作废|不再举行|不再举办|暂停举行|免交|无需提交|不用交|删了|删掉|去掉|不去了|不开了)|"
+    r"了|吧|呀|啊|[\s，,。；;：:！!？?]+)"
+)
+
+
+def _detect_implicit_cancel(text: str, snapshot: dict, matched_ids: set[str]) -> dict[str, Any] | None:
+    """Match a short title-less cancellation ('发错了，取消了' / '刚才那场取消了') to the sole latest active item."""
+    if not CANCEL_CUE_RE.search(text):
+        return None
+    if CANCEL_NOISE_RE.sub("", text).strip():
+        return None
+    picked = _latest_unambiguous_target(snapshot, matched_ids)
+    if picked is None:
+        return None
+    kind, target = picked
+    matched_ids.add(target["id"])
+    return {
+        "kind": kind,
+        "action": "cancel",
+        "target_id": target["id"],
+        "target_title": target["title"],
+        "confidence": 0.85,
+        "quote": text.strip(),
+        "changes": {"status": {"from": "active", "to": "cancelled"}},
+    }
+
+
 def _detect_implicit_correction(
     text: str,
     reference_date: str | None,
@@ -370,9 +399,11 @@ def diff_notice(payload: object) -> dict[str, Any]:
                 "changes": {},
             })
 
-    # 3b. Short title-less follow-up correction ("消息错了，应该是11月28日（周六）") targeting the latest unambiguous item.
+    # 3b. Short title-less follow-up cancel/correction ("发错了，取消了" / "消息错了，应该是11月28日（周六）")
     if not any(op["action"] in {"update", "cancel"} for op in operations):
-        implicit = _detect_implicit_correction(text, reference_date, timezone, snapshot, matched_ids, extracted["source"]["id"])
+        implicit = _detect_implicit_cancel(text, snapshot, matched_ids) or _detect_implicit_correction(
+            text, reference_date, timezone, snapshot, matched_ids, extracted["source"]["id"]
+        )
         if implicit is not None:
             operations = [implicit]
 

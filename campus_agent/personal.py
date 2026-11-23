@@ -14,13 +14,13 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from .time_parser import CLOCK_RE, CN, RANGE_RE, clock_value, cn_number
+from .time_parser import CLOCK_RE, CN, RANGE_RE, clock_shorthand_end, clock_value, cn_number
 from .time_utils import get_zone
 
 PERSONAL_NOTE = "个人任务"
 SPLIT = re.compile(r"[\n。；;！!？?]+")
 COMMA_SPLIT = re.compile(r"[，,]+")
-PERIOD_RE = re.compile(r"(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间)")
+PERIOD_RE = re.compile(r"(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|一整天|全天|整天)")
 PERIOD_START_ANCHOR: dict[str, tuple[int, int, int]] = {
     "清晨": (6, 0, 0),
     "早晨": (7, 0, 0),
@@ -63,17 +63,27 @@ PERIOD_WINDOWS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int], str]
     "夜间": ((18, 0, 0), (23, 0, 0), "晚上"),
     "今晚": ((18, 0, 0), (23, 0, 0), "晚上"),
     "明晚": ((18, 0, 0), (23, 0, 0), "晚上"),
+    "全天": ((8, 0, 0), (22, 0, 0), "全天"),
+    "一整天": ((8, 0, 0), (22, 0, 0), "全天"),
+    "整天": ((8, 0, 0), (22, 0, 0), "全天"),
 }
 CLAUSE_LEAD = re.compile(r"^(?:然后|再|还有|另外|并且|以及|接着|随后)?\s*")
-MARKER = re.compile(r"提醒我|帮我记(?:住|一下)?|记得|别忘了|我(?:今天|明天|后天|今晚|明早|明晚|这周|本周|下周|(?:这|本|下个?)?周末)?(?:要|得|需要|想要?)|(?:今天|明天|后天|今晚|明早|明晚|(?:这|本|下个?)?周末)(?:要|得|需要)|待办[:：]?")
+MARKER = re.compile(
+    r"提醒我|帮我记(?:住|一下)?|记得|别忘了|"
+    r"我(?:今天|明天|后天|今晚|明早|明晚|(?:这|本|下)个?周|(?:这|本|下)个?周末)?(?:要|得|需要|想要?|打算|准备|计划)|"
+    r"(?:今天|明天|后天|今晚|明早|明晚|(?:这|本|下)个?周末)(?:要|得|需要|打算|准备|计划)|待办[:：]?"
+)
 RELATIVE = {"今天": 0, "今日": 0, "今晚": 0, "今早": 0, "明天": 1, "明早": 1, "明晚": 1, "后天": 2, "大后天": 3}
 WEEKDAYS = "一二三四五六日天"
-DATE = re.compile(r"(?P<rel>大后天|后天|明天|明早|明晚|今天|今日|今晚|今早)"
-                  r"|(?P<weekend>(?:下个?|本|这)?周末)"
-                  r"|(?P<next>下个?|本|这)?(?:周|星期|礼拜)(?P<wd>[一二三四五六日天])"
-                  r"|(?<!\d)(?P<iy>\d{4})-(?P<im>\d{1,2})-(?P<id>\d{1,2})(?!\d)"
-                  r"|(?:(?:(?P<y>\d{4})年\s*)?(?P<m>\d{1,2})月(?P<d>\d{1,2})[日号])"
-                  r"|(?<![\d年月])(?P<dd>\d{1,2})[号日](?![\d楼室馆门线房])")
+DATE = re.compile(
+    r"(?P<rel>大后天|后天|明天|明早|明晚|今天|今日|今晚|今早)"
+    r"|(?P<weekend>(?:(?:下|本|这)个?)?周末)"
+    r"|(?P<next>(?:下|本|这)个?)?(?:周|星期|礼拜)(?P<wd>[一二三四五六日天])"
+    r"|(?<!\d)(?P<iy>\d{4})-(?P<im>\d{1,2})-(?P<id>\d{1,2})(?!\d)"
+    r"|(?:(?:(?P<y>\d{4})年\s*)?(?P<m>\d{1,2})月(?P<d>\d{1,2})[日号])"
+    r"|(?<![\d./])(?P<sm>\d{1,2})[./](?P<sd>\d{1,2})(?![\d./])"
+    r"|(?<![\d年月])(?P<dd>\d{1,2})[号日](?![\d楼室馆门线房])"
+)
 BEFORE = re.compile(
     r"\s*(?:(?:之|以)?前(?!端|台|往|进|期|几|提(?![交供出醒报]))|"
     r"(?:之|以)?内(?!容|部|涵|地|外|存|核|嵌|置|向|衣|饰|科|脏)|截止|为止)"
@@ -91,13 +101,13 @@ GOING = re.compile(
     r"彩排|排练|表演|演出|比赛|考试|测验|讲座|宣讲|汇报|培训|体检|值班|志愿|"
     r"看电影|观影|吃饭|聚餐|约饭|打球|健身|集合|签到"
 )
-NOISE = re.compile(r"^(?:提醒我|帮我记(?:住|一下)?|记得|别忘了|待办|我(?:要|得|需要|想要?)?|要|得|需要|请|截止)+|[，,]?\s*(?:大概|大约|约|预计|用时)$")
+NOISE = re.compile(r"^(?:提醒我|帮我记(?:住|一下)?|记得|别忘了|待办|我(?:要|得|需要|想要?|打算|准备|计划)?|要|得|需要|打算|准备|计划|请|截止)+|[，,]?\s*(?:大概|大约|约|预计|用时)$")
 # A notice reads "11月20日19:00 学术讲座"; a note to oneself reads "明天下午3点去取快递" or "周五前交报告".
 NOTICEY = re.compile(r"【|】|通知|同学们|各位|各班|请于|请各|请在|报名方式|联系人")
 COLLOQUIAL = re.compile(
-    r"(?:我\s*)?(?:(?:(?:下个?|本|这)?周末)|(?:(?:下个?|本|这)?(?:周|星期|礼拜)[一二三四五六日天])|"
+    r"(?:我\s*)?(?:(?:(?:(?:下|本|这)个?)?周末)|(?:(?:(?:下|本|这)个?)?(?:周|星期|礼拜)[一二三四五六日天])|"
     r"大后天|后天|明天|明早|明晚|今天|今日|今晚|今早)|"
-    r"我\s*(?:\d{1,2}月\d{1,2}[日号]|\d{1,2}[号日])"
+    r"我\s*(?:\d{1,2}月\d{1,2}[日号]|\d{1,2}[./]\d{1,2}|\d{1,2}[号日])"
 )
 
 
@@ -128,15 +138,16 @@ def _day(match: re.Match[str], today: date) -> date:
     if match["wd"]:
         target = WEEKDAYS.index(match["wd"]) if match["wd"] != "天" else 6
         delta = target - today.weekday()
-        if match["next"] in {"本", "这"}:
+        if match["next"] and ("本" in match["next"] or "这" in match["next"]):
             return today + timedelta(days=delta)
-        return today + timedelta(days=delta + 7 if match["next"] else delta % 7)
+        return today + timedelta(days=delta + 7 if (match["next"] and "下" in match["next"]) else delta % 7)
     if match["iy"]:
         return date(int(match["iy"]), int(match["im"]), int(match["id"]))
-    if match["m"]:
-        month, day = int(match["m"]), int(match["d"])
-        found = date(int(match["y"] or today.year), month, day)
-        if not match["y"] and found < today - timedelta(days=60):
+    if match["m"] or match["sm"]:
+        month, day = int(match["m"] or match["sm"]), int(match["d"] or match["sd"])
+        year = int(match["y"] or today.year) if match["m"] else today.year
+        found = date(year, month, day)
+        if not (match["m"] and match["y"]) and found < today - timedelta(days=60):
             found = date(today.year + 1, month, day)
         return found
     return date(today.year, today.month, int(match["dd"]))
@@ -169,7 +180,7 @@ def _title(sentence: str, spans: list[tuple[int, int]]) -> str:
     text = "".join([*pieces, sentence[cursor:]])
     for _ in range(4):
         text = NOISE.sub("", text.strip(" ，,、：:"))
-        text = re.sub(r"^(?:然后|接着|随后|今天|明天|后天|今晚|今早|明早|明晚|这周|本周|下周|(?:下个?|本|这)?周末|清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|在|把)+", "", text).strip(" ，,、：:")
+        text = re.sub(r"^(?:然后|接着|随后|今天|明天|后天|今晚|今早|明早|明晚|(?:(?:这|本|下)个?)?周|(?:(?:下|本|这)个?)?周末|清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|一整天|全天|整天|在|把)+", "", text).strip(" ，,、：:")
     return text[:200]
 
 
@@ -246,7 +257,10 @@ def personal_item(
         return None
     if not explicit and re.search(
         r"吗$|呢$|[？?]$|怎么办|能不能|要不要|有没有|可不可以|是否|有空|多少空|剩多少|"
-        r"好累|开心|难过|下雨|下雪|(?:状态|精力|精神)(?:不|很差|差|一般|偏低|不足|不够|不错|很好|挺好|充沛)|不舒服|头[疼痛晕]",
+        r"(?:有点儿?|有些|好|太)?(?:累|困|乏|疲惫)|开心|难过|下雨|下雪|"
+        r"(?:状态|精力|精神|效率)(?:有点儿?|有些|略微?|稍微?|非常|特别|太|真|挺|很|较|比较|实在|确实|一直|还是)?"
+        r"(?:不|差|一般|低|偏低|不足|不够|欠佳|跟不上|糟糕|崩了|不错|好|充沛|拉满|在线|高)|"
+        r"不舒服|头[疼痛晕]",
         sentence,
     ):
         return None
@@ -317,7 +331,13 @@ def personal_item(
     if durations and minutes is None:
         notes.append("预计用时有歧义或超出范围，请核对原文后补填。")
 
-    is_event = not before and (connector is not None or period_range_info is not None or (bool(clocks) and GOING.search(title)))
+    shorthand_end_clock = clock_shorthand_end(clocks[0]) if len(clocks) == 1 else None
+    is_event = not before and (
+        connector is not None
+        or shorthand_end_clock is not None
+        or period_range_info is not None
+        or (bool(clocks) and GOING.search(title))
+    )
     start = end = None
     day: date | None = None
     try:
@@ -357,7 +377,11 @@ def personal_item(
             relative = dates[0]["rel"] if dates else None
             period = {"今晚": "晚上", "明晚": "晚上", "明早": "早上", "今早": "早上"}.get(relative)
             start = _at(day or today, clock_value(clocks[0], period))
-            if connector:
+            if shorthand_end_clock is not None:
+                end = _at(day or today, clock_shorthand_end(clocks[0], period))
+                if end <= start:
+                    raise ValueError("结束须晚于开始，跨午夜请写明次日")
+            elif connector:
                 next_day = bool(connector["next"] or connector["next_after"])
                 end_day = _day(dates[1], today) if len(dates) == 2 else (day or today) + timedelta(days=next_day)
                 end = _at(end_day, clock_value(clocks[1], clocks[0]["period"] or period))

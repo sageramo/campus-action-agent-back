@@ -227,3 +227,31 @@ class PersonalReminderTests(TestCase):
         self.assertEqual([(e["title"], e["start_at"]) for e in r_rs["events"]], [("智能体节路演", "2026-11-24T14:15:00+08:00")])
         r_jh = process_post("/api/v3/extract", {"text": "11月25日08:00在南操场集合", "reference_date": "2026-11-23", "mode": "rules"})
         self.assertEqual([(e["title"], e["start_at"]) for e in r_jh["events"]], [("南操场集合", "2026-11-25T08:00:00+08:00")])
+
+    def test_shorthand_clock_ranges_period_after_digit_and_colloquial_chinese_habits(self):
+        # Compact Chinese clock ranges ("下午2-4点", "晚上7到9点半") must inherit period onto BOTH endpoints
+        r1 = process_post("/api/v3/extract", {"text": "明天下午2-4点开会", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"], e["end_at"]) for e in r1["events"]],
+                         [("开会", "2026-11-24T14:00:00+08:00", "2026-11-24T16:00:00+08:00")])
+        r2 = process_post("/api/v3/extract", {"text": "周三晚上7到9点半排练", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"], e["end_at"]) for e in r2["events"]],
+                         [("排练", "2026-11-25T19:00:00+08:00", "2026-11-25T21:30:00+08:00")])
+        r3 = process_post("/api/v3/extract", {"text": "2026年11月25日下午2-4点举行招新说明会", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"], e["end_at"]) for e in r3["events"]],
+                         [("招新说明会", "2026-11-25T14:00:00+08:00", "2026-11-25T16:00:00+08:00")])
+        # Period immediately following a numeric date ("11.25下午3点") must be 15:00, never 03:00 AM
+        r4 = process_post("/api/v3/extract", {"text": "我11.25下午3点面试", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"]) for e in r4["events"]], [("面试", "2026-11-25T15:00:00+08:00")])
+        # "这个周四", "11/28前", "打算", "全天"/"一整天"
+        r5 = process_post("/api/v3/extract", {"text": "这个周四上午要彩排，下午要表演", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(t["title"], t["earliest_start_at"], t["deadline_at"]) for t in r5["tasks"]],
+                         [("彩排", "2026-11-26T08:00:00+08:00", "2026-11-26T12:00:00+08:00"),
+                          ("表演", "2026-11-26T13:00:00+08:00", "2026-11-26T18:00:00+08:00")])
+        r6 = process_post("/api/v3/extract", {"text": "提醒我11/28前交论文", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(t["title"], t["deadline_at"]) for t in r6["tasks"]], [("交论文", "2026-11-28T23:59:00+08:00")])
+        r7 = process_post("/api/v3/extract", {"text": "我打算明天下午复习高数", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(t["title"], t["earliest_start_at"], t["deadline_at"]) for t in r7["tasks"]],
+                         [("复习高数", "2026-11-24T13:00:00+08:00", "2026-11-24T18:00:00+08:00")])
+        r8 = process_post("/api/v3/extract", {"text": "我周六一整天要比赛", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(t["title"], t["earliest_start_at"], t["deadline_at"]) for t in r8["tasks"]],
+                         [("比赛", "2026-11-28T08:00:00+08:00", "2026-11-28T22:00:00+08:00")])

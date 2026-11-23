@@ -31,7 +31,7 @@ DATE_RE = re.compile(
     r"|(?:(?P<year>\d{4})年\s*|(?P<year_word>今年|明年|去年))?(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*[日号]?"
     r"|(?P<sm>\d{1,2})[./](?P<sd>\d{1,2})(?![\d./])"
     r"|(?P<relative>大后天|后天|明天|今天|今日|昨天)"
-    r"|(?<!下)(?P<week>本周|这周|下周)(?P<weekday>[一二三四五六日天])"
+    r"|(?<!下)(?P<week>(?:本|这|下)个?(?:周|星期|礼拜))(?P<weekday>[一二三四五六日天])"
     r"|(?<![\d年月./-])(?P<bare_day>0?[1-9]|[12]\d|3[01])\s*[日号](?!楼|室|馆|门|线|房|公寓|宿舍|\d+(?:室|楼|号|报告厅|教室|房|幢)))"
 )
 WEEKDAY_ANNOTATION_RE = re.compile(
@@ -40,10 +40,14 @@ WEEKDAY_ANNOTATION_RE = re.compile(
 )
 CN = "零〇一二两三四五六七八九十"
 CLOCK_RE = re.compile(
-    rf"(?<![\d:：])(?P<period>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|(?<!最)早|(?<!最)晚)?\s*"
-    rf"(?P<hour>\d{{1,2}}|[{CN}]{{1,3}})"
+    rf"(?:(?P<period>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|(?<!最)早|(?<!最)晚)\s*|(?<![\d:：]))"
+    rf"(?:"
+    rf"(?P<sh_hour>\d{{1,2}}|[{CN}]{{1,3}})\s*(?P<sh_sep>[-—–~～至到])\s*"
+    rf"(?P<sh_end_hour>\d{{1,2}}|[{CN}]{{1,3}})[点时](?P<sh_cn_minute>半|一刻|三刻|\d{{1,2}}分?|[{CN}]{{1,3}}分)?"
+    rf"|(?P<hour>\d{{1,2}}|[{CN}]{{1,3}})"
     rf"(?:(?:[:：](?P<minute>\d{{2}})(?::(?P<second>\d{{2}}))?)"
-    rf"|(?:[点时](?P<cn_minute>半|一刻|三刻|\d{{1,2}}分?|[{CN}]{{1,3}}分)?))(?!\d)"
+    rf"|(?:[点时](?P<cn_minute>半|一刻|三刻|\d{{1,2}}分?|[{CN}]{{1,3}}分)?))"
+    rf")(?!\d)"
 )
 CLAUSE_RE = re.compile(r"[^，,。；;\n！？!?]+")
 SENTENCE_END_RE = re.compile(r"[。；;\n！？!?]")
@@ -128,17 +132,21 @@ def cn_number(value: str) -> int:
     return digits[value]
 
 
-def clock_value(match: re.Match[str], inherited_period: str | None = None) -> tuple[int, int, int]:
-    hour = cn_number(match["hour"])
-    minute_text = match["cn_minute"]
-    if match["minute"] is not None:
-        minute = int(match["minute"])
-    elif minute_text in {"半", "一刻", "三刻"}:
-        minute = {"半": 30, "一刻": 15, "三刻": 45}[minute_text]
+def _clock_parts_to_hms(
+    hour_text: str,
+    minute_digits: str | None,
+    cn_minute: str | None,
+    second_digits: str | None,
+    period: str | None,
+) -> tuple[int, int, int]:
+    hour = cn_number(hour_text)
+    if minute_digits is not None:
+        minute = int(minute_digits)
+    elif cn_minute in {"半", "一刻", "三刻"}:
+        minute = {"半": 30, "一刻": 15, "三刻": 45}[cn_minute]
     else:
-        minute = cn_number(minute_text.rstrip("分")) if minute_text else 0
-    second = int(match["second"] or 0)
-    period = match["period"] or inherited_period
+        minute = cn_number(cn_minute.rstrip("分")) if cn_minute else 0
+    second = int(second_digits or 0)
     if not (0 <= hour <= 24 and 0 <= minute < 60 and 0 <= second < 60):
         raise ValueError("时分秒超出合法范围")
     if hour == 24:
@@ -158,6 +166,21 @@ def clock_value(match: re.Match[str], inherited_period: str | None = None) -> tu
     if period in {"上午", "早上", "清晨", "凌晨", "早"} and hour > 12:
         raise ValueError("时段与小时矛盾")
     return hour, minute, second
+
+
+def clock_value(match: re.Match[str], inherited_period: str | None = None) -> tuple[int, int, int]:
+    period = match["period"] or inherited_period
+    if match["sh_hour"] is not None:
+        return _clock_parts_to_hms(match["sh_hour"], None, None, None, period)
+    return _clock_parts_to_hms(match["hour"], match["minute"], match["cn_minute"], match["second"], period)
+
+
+def clock_shorthand_end(match: re.Match[str], inherited_period: str | None = None) -> tuple[int, int, int] | None:
+    """When CLOCK_RE matched a compact range like '下午2-4点' or '晚上7到9点半', return its end (h, m, s)."""
+    if match["sh_hour"] is None:
+        return None
+    period = match["period"] or inherited_period
+    return _clock_parts_to_hms(match["sh_end_hour"], None, match["sh_cn_minute"], None, period)
 
 
 def dated_value(day: date | None, clock: tuple[int, int, int]) -> str:
@@ -229,7 +252,7 @@ def extract_time_candidates(
                         day = ref + timedelta(days={"今天": 0, "今日": 0, "明天": 1, "后天": 2, "大后天": 3, "昨天": -1}[match["relative"]])
                     else:
                         offset = "一二三四五六日".index(match["weekday"].replace("天", "日"))
-                        day = ref - timedelta(days=ref.weekday()) + timedelta(days=offset + (7 if match["week"] == "下周" else 0))
+                        day = ref - timedelta(days=ref.weekday()) + timedelta(days=offset + (7 if "下" in match["week"] else 0))
                     note.append(f"相对日期基于用户指定参照日 {ref.isoformat()}，请核对是否为原通知语境。")
                 elif match["bare_day"]:
                     if ref is None:
@@ -281,7 +304,8 @@ def extract_time_candidates(
                 while cursor < len(clocks):
                     clock = clocks[cursor]
                     used_clocks.add(clock.span())
-                    end_clock = clocks[cursor + 1] if cursor + 1 < len(clocks) else None
+                    shorthand_end = clock_shorthand_end(clock)
+                    end_clock = clocks[cursor + 1] if (shorthand_end is None and cursor + 1 < len(clocks)) else None
                     connector = RANGE_RE.fullmatch(clause[clock.end():end_clock.start()]) if end_clock else None
                     if connector:
                         used_clocks.add(end_clock.span())
@@ -289,7 +313,11 @@ def extract_time_candidates(
                         value = dated_value(day, clock_value(clock))
                         end_value = None
                         end_pos = clock.end()
-                        if connector:
+                        if shorthand_end is not None:
+                            end_value = dated_value(day, shorthand_end)
+                            if end_value <= value:
+                                raise ValueError("区间结束不晚于开始；跨午夜请写明次日或结束日期")
+                        elif connector:
                             end_day = day + timedelta(days=1 if connector["next"] or connector["next_after"] else 0)
                             end_value = dated_value(end_day, clock_value(end_clock, clock["period"]))
                             end_pos = end_clock.end()
@@ -327,12 +355,17 @@ def extract_time_candidates(
         cursor = 0
         while cursor < len(unanchored):
             match = unanchored[cursor]
-            end_match = unanchored[cursor + 1] if cursor + 1 < len(unanchored) else None
+            shorthand_end = clock_shorthand_end(match)
+            end_match = unanchored[cursor + 1] if (shorthand_end is None and cursor + 1 < len(unanchored)) else None
             connector = RANGE_RE.fullmatch(clause[match.end():end_match.start()]) if end_match else None
             end_pos = end_match.end() if connector else match.end()
             try:
                 value = dated_value(None, clock_value(match))
-                end_value = dated_value(None, clock_value(end_match, match["period"])) if connector else None
+                end_value = (
+                    dated_value(None, shorthand_end)
+                    if shorthand_end is not None
+                    else dated_value(None, clock_value(end_match, match["period"])) if connector else None
+                )
                 if end_value and end_value <= value:
                     raise ValueError("无日期区间跨日关系未明确，请补全日期")
             except (ValueError, KeyError) as exc:

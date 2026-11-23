@@ -128,6 +128,17 @@ class NoticeDiffTests(unittest.TestCase):
         self.assertEqual(res_amb["summary"]["updated"], 0)
         self.assertEqual(res_amb["summary"]["added"], 0)
 
+        # Short title-less cancellation ("发错了，取消了") cancels sole latest item instead of creating a fake task
+        res_cancel = process_post("/api/v3/notice-diff", {
+            "snapshot": snap,
+            "text": "发错了，刚才那场取消了",
+            "reference_date": None,
+            "range": {"from": "2026-11-23", "to": "2026-11-29"},
+        })
+        self.assertEqual(res_cancel["summary"]["cancelled"], 1)
+        self.assertEqual(res_cancel["summary"]["added"], 0)
+        self.assertEqual(res_cancel["preview_snapshot"]["events"][0]["status"], "cancelled")
+
 
 if __name__ == "__main__":
     unittest.main()

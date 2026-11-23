@@ -21,6 +21,33 @@ PERSONAL_NOTE = "个人任务"
 SPLIT = re.compile(r"[\n。；;！!？?]+")
 COMMA_SPLIT = re.compile(r"[，,]+")
 PERIOD_RE = re.compile(r"(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间)")
+PERIOD_START_ANCHOR: dict[str, tuple[int, int, int]] = {
+    "清晨": (6, 0, 0),
+    "早晨": (7, 0, 0),
+    "早上": (8, 0, 0),
+    "上午": (8, 0, 0),
+    "中午": (12, 0, 0),
+    "下午": (13, 0, 0),
+    "傍晚": (17, 0, 0),
+    "晚上": (18, 0, 0),
+    "晚间": (18, 0, 0),
+    "夜间": (19, 0, 0),
+}
+PERIOD_END_ANCHOR: dict[str, tuple[int, int, int]] = {
+    "清晨": (9, 0, 0),
+    "早晨": (10, 0, 0),
+    "早上": (10, 0, 0),
+    "上午": (12, 0, 0),
+    "中午": (14, 0, 0),
+    "下午": (18, 0, 0),
+    "傍晚": (20, 0, 0),
+    "晚上": (22, 0, 0),
+    "晚间": (22, 0, 0),
+    "夜间": (23, 0, 0),
+}
+PERIOD_TO_CLOCK_RE = re.compile(r"(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间)\s*(?:到|至|-|—|–|~|～)\s*$")
+CLOCK_TO_PERIOD_RE = re.compile(r"^\s*(?:到|至|-|—|–|~|～)\s*(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间)")
+PERIOD_TO_PERIOD_RE = re.compile(r"(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间)\s*(?:到|至|-|—|–|~|～)\s*(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间)")
 PERIOD_WINDOWS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int], str]] = {
     "清晨": ((6, 0, 0), (9, 0, 0), "清晨"),
     "早晨": ((6, 0, 0), (10, 0, 0), "早上"),
@@ -221,16 +248,35 @@ def personal_item(
     if connector:
         spans.append((clocks[0].end(), clocks[1].start()))
 
-    # Recognize standalone day-period words (上午/下午/晚上/中午/早上...) when no exact clock is given.
+    # Recognize period-anchored ranges ("中午到晚上五点", "下午3点到晚上", "上午到下午") and standalone day-periods.
+    period_range_info: tuple[str, tuple[int, int, int] | None, tuple[int, int, int] | None, str] | None = None
     period_match = None
     period_key: str | None = None
-    if not clocks:
-        period_match = PERIOD_RE.search(clock_text)
-        if period_match:
-            period_key = period_match.group(1)
-            spans.append(period_match.span())
-        elif len(dates) == 1 and dates[0]["rel"] in PERIOD_WINDOWS:
-            period_key = dates[0]["rel"]
+    if len(clocks) == 1:
+        p2c = PERIOD_TO_CLOCK_RE.search(clock_text[:clocks[0].start()])
+        c2p = CLOCK_TO_PERIOD_RE.match(clock_text[clocks[0].end():]) if not p2c else None
+        if p2c:
+            p_word = p2c.group(1)
+            spans.append((p2c.start(), clocks[0].start()))
+            period_range_info = ("p2c", PERIOD_START_ANCHOR[p_word], None, p_word)
+        elif c2p:
+            p_word = c2p.group(1)
+            spans.append((clocks[0].end(), clocks[0].end() + c2p.end()))
+            period_range_info = ("c2p", None, PERIOD_END_ANCHOR[p_word], p_word)
+    elif not clocks:
+        p2p = PERIOD_TO_PERIOD_RE.search(clock_text)
+        if p2p:
+            p1, p2 = p2p.group(1), p2p.group(2)
+            if PERIOD_START_ANCHOR[p1] < PERIOD_END_ANCHOR[p2]:
+                spans.append(p2p.span())
+                period_range_info = ("p2p", PERIOD_START_ANCHOR[p1], PERIOD_END_ANCHOR[p2], f"{p1}到{p2}")
+        if not period_range_info:
+            period_match = PERIOD_RE.search(clock_text)
+            if period_match:
+                period_key = period_match.group(1)
+                spans.append(period_match.span())
+            elif len(dates) == 1 and dates[0]["rel"] in PERIOD_WINDOWS:
+                period_key = dates[0]["rel"]
 
     end_of_time = max(
         (match.end() for match in [*dates, *clocks, *([period_match] if period_match else [])]),
@@ -256,7 +302,7 @@ def personal_item(
     if durations and minutes is None:
         notes.append("预计用时有歧义或超出范围，请核对原文后补填。")
 
-    is_event = not before and (connector is not None or (bool(clocks) and GOING.search(title)))
+    is_event = not before and (connector is not None or period_range_info is not None or (bool(clocks) and GOING.search(title)))
     start = end = None
     day: date | None = None
     try:
@@ -265,7 +311,34 @@ def personal_item(
         if len(clocks) > 1 and not connector:
             raise ValueError("出现多个时刻")
         day = _day(dates[0], today) if dates else inherited_day
-        if clocks:
+        if period_range_info is not None:
+            r_kind, p_start_c, p_end_c, p_label = period_range_info
+            base_day = day or today
+            relative = dates[0]["rel"] if dates else None
+            rel_period = {"今晚": "晚上", "明晚": "晚上", "明早": "早上", "今早": "早上"}.get(relative)
+            if r_kind == "p2c":
+                assert p_start_c is not None
+                start = _at(base_day, p_start_c)
+                end = _at(base_day, clock_value(clocks[0], rel_period))
+                if end <= start:
+                    raise ValueError("结束须晚于开始，跨午夜请写明次日")
+                notes.append(f"开始时刻按「{p_label}」默认 {p_start_c[0]:02d}:{p_start_c[1]:02d} 计，可在笔墨微调。")
+            elif r_kind == "c2p":
+                assert p_end_c is not None
+                start = _at(base_day, clock_value(clocks[0], rel_period))
+                end_c = (12, 0, 0) if p_label == "中午" and start < _at(base_day, (12, 0, 0)) else p_end_c
+                end = _at(base_day, end_c)
+                if end <= start:
+                    raise ValueError("结束须晚于开始，跨午夜请写明次日")
+                notes.append(f"结束时刻按「{p_label}」默认 {end_c[0]:02d}:{end_c[1]:02d} 计，可在笔墨微调。")
+            else:
+                assert p_start_c is not None and p_end_c is not None
+                start = _at(base_day, p_start_c)
+                end = _at(base_day, p_end_c)
+                notes.append(
+                    f"起止按「{p_label}」默认 {p_start_c[0]:02d}:{p_start_c[1]:02d}–{p_end_c[0]:02d}:{p_end_c[1]:02d} 计，可在笔墨微调。"
+                )
+        elif clocks:
             relative = dates[0]["rel"] if dates else None
             period = {"今晚": "晚上", "明晚": "晚上", "明早": "早上", "今早": "早上"}.get(relative)
             start = _at(day or today, clock_value(clocks[0], period))

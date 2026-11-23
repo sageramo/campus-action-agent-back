@@ -164,3 +164,27 @@ class PersonalReminderTests(TestCase):
         self.assertEqual((bp["title"], bp["earliest_start_at"], bp["deadline_at"], bp["estimate_minutes"]),
                          ("交报告", None, "2026-11-27T12:00:00+08:00", 60))
         self.assertIn(bp["evidence"][0]["quote"], before_period["source"]["text"])
+
+    def test_period_anchored_time_ranges_become_clean_appointments(self):
+        # Real user trial case: "周一中午到晚上五点开会" (2026-11-23 is Monday)
+        r1 = process_post("/api/v3/extract", {"text": "周一中午到晚上五点开会", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual(r1["tasks"], [])
+        self.assertEqual([(e["title"], e["kind"], e["start_at"], e["end_at"]) for e in r1["events"]],
+                         [("开会", "appointment", "2026-11-23T12:00:00+08:00", "2026-11-23T17:00:00+08:00")])
+
+        r2 = process_post("/api/v3/extract", {"text": "周二中午到下午3点彩排", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"], e["end_at"]) for e in r2["events"]],
+                         [("彩排", "2026-11-24T12:00:00+08:00", "2026-11-24T15:00:00+08:00")])
+
+        r3 = process_post("/api/v3/extract", {"text": "周三下午3点到晚上彩排", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"], e["end_at"]) for e in r3["events"]],
+                         [("彩排", "2026-11-25T15:00:00+08:00", "2026-11-25T22:00:00+08:00")])
+
+        r4 = process_post("/api/v3/extract", {"text": "周五上午到下午排练", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"], e["end_at"]) for e in r4["events"]],
+                         [("排练", "2026-11-27T08:00:00+08:00", "2026-11-27T18:00:00+08:00")])
+
+        # Bare time-only fragments must never become fake untimed tasks like "下午五点" or "中午到"
+        for bare in ("下午五点", "中午到晚上五点"):
+            with self.assertRaises(ValueError):
+                process_post("/api/v3/extract", {"text": bare, "reference_date": "2026-11-23", "mode": "rules"})

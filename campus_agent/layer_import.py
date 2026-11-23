@@ -31,8 +31,22 @@ VENUE_HINT_RE = re.compile(
     r"[一二三四五六七八九十\d]+教)"
 )
 NON_LOCATION_PAREN_RE = re.compile(r"待定|未定|暂定|参加|必到|自愿|选填|截止|提交|电子版|纸质版|PDF|含|约|周一|周二|周三|周四|周五|周六|周日|星期")
+BARE_TIME_NOISE_RE = re.compile(
+    r"(?:大后天|后天|明天|明早|明晚|今天|今日|今晚|今早|"
+    r"(?:下个?|本|这)?周末|(?:下个?|本|这)?(?:周|星期|礼拜)[一二三四五六日天]|"
+    r"清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|"
+    r"(?:之|以)?前|以后|之后|左右|大概|大约|开始|结束|截止|到|至|"
+    r"[\s，,。；;：:！!？?\-—–~～/]+)"
+)
 FIELD_MAP = {"title": "title", "deadline_at": "deadline_at", "fixed_start_at": "start_at", "fixed_end_at": "end_at",
              "location": "location", "materials": "materials"}
+
+
+def _is_bare_time_only(text: str) -> bool:
+    stripped = DATE_RE.sub(" ", text)
+    stripped = CLOCK_RE.sub(" ", stripped)
+    stripped = BARE_TIME_NOISE_RE.sub("", stripped)
+    return not stripped.strip()
 
 
 def _id(prefix: str) -> str:
@@ -131,6 +145,8 @@ def _title(text: str, start: int, end: int, event: bool) -> str:
 
 def items_from_rules(text: str, reference_date: str | None) -> dict[str, Any]:
     text, reference_date, timezone = validate_extraction_input({"text": text, "reference_date": reference_date})
+    if _is_bare_time_only(text):
+        raise ValueError("只识别到时间，没看到具体事项名称；请写清要做什么，例如「周一中午到下午5点开会」。")
     parsed = parse_notice_text(text, source="user input", reference_date=reference_date, timezone=timezone).to_dict()
     source = _source(text)
     events, tasks = [], []

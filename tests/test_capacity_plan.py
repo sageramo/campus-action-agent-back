@@ -570,6 +570,149 @@ class AgendaChatToolsTests(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.status, 502)
 
+    def test_chat_propose_items_validates_preview_snapshot_and_computes_impact(self) -> None:
+        snap = _roadshow_snapshot()
+        before = json.loads(json.dumps(snap))
+        step1 = {
+            "tool": "propose_items",
+            "arguments": {
+                "items": [
+                    {
+                        "kind": "task",
+                        "title": "大创结题材料和PPT",
+                        "deadline_at": "2026-11-26T15:00:00+08:00",
+                        "estimate_minutes": 180,
+                    },
+                    {
+                        "kind": "event",
+                        "title": "和室友吃火锅",
+                        "start_at": "2026-11-27T19:00:00+08:00",
+                        "end_at": "2026-11-27T21:00:00+08:00",
+                        "location": "北门火锅店",
+                    },
+                ]
+            },
+        }
+        step2 = {"reply": "已为你整理好 2 项草案：周四 15:00 前完成大创结题材料和PPT（3小时），周五 19:00–21:00 和室友吃火锅。点下方按钮确认即可记入清单。"}
+        with patch("campus_agent.agenda_chat.chat_json", side_effect=[step1, step2]) as model:
+            res = process_post(
+                "/api/v3/chat",
+                {
+                    "mode": "model",
+                    "messages": [{"role": "user", "text": "周四下午三点前得交大创结题材料和PPT，大概三小时，顺便周五晚上七点到九点和室友在北门火锅店吃火锅"}],
+                    "snapshot": snap,
+                    "now": ROADSHOW_NOW,
+                },
+            )
+        self.assertEqual(snap, before)
+        self.assertNotIn("高等数学", model.call_args_list[0].args[1])
+        self.assertNotIn("高等数学", model.call_args_list[1].args[1])
+        prop = res["proposal"]
+        self.assertEqual(prop["kind"], "add_items")
+        self.assertEqual(len(prop["items"]), 2)
+        self.assertIsNotNone(prop["impact"])
+        self.assertEqual(len(prop["preview_snapshot"]["events"]), len(snap["events"]) + 1)
+        self.assertEqual(len(prop["preview_snapshot"]["tasks"]), len(snap["tasks"]) + 1)
+        self.assertLess(prop["impact"]["free_delta_minutes"], 0)
+
+    def test_chat_propose_update_resolves_most_urgent_and_shift_days_without_leaking_list(self) -> None:
+        snap = _roadshow_snapshot()
+        snap["tasks"].append(
+            {
+                "id": "t-urgent",
+                "title": "大创结题汇报PPT",
+                "deadline_at": "2026-11-25T12:00:00+08:00",
+                "estimate_minutes": 60,
+                "splittable": True,
+                "min_block_minutes": 30,
+                "earliest_start_at": None,
+                "priority": None,
+                "status": "active",
+                "location": None,
+                "materials": [],
+                "source_id": None,
+                "evidence": [],
+                "notes": [],
+            }
+        )
+        step1 = {
+            "tool": "propose_update",
+            "arguments": {"target_hint": None, "selector": "most_urgent", "action": "update", "shift_days": 1},
+        }
+        step2 = {"reply": "准备把最急的「大创结题汇报PPT」截止从 11月25日 18:00 往后挪一天到 11月26日 18:00，确认后即可生效。"}
+        with patch("campus_agent.agenda_chat.chat_json", side_effect=[step1, step2]) as model:
+            res = process_post(
+                "/api/v3/chat",
+                {
+                    "mode": "model",
+                    "messages": [{"role": "user", "text": "把最急的那个往后挪一天"}],
+                    "snapshot": snap,
+                    "now": ROADSHOW_NOW,
+                },
+            )
+        self.assertNotIn("大创结题汇报PPT", model.call_args_list[0].args[1])
+        prop = res["proposal"]
+        self.assertEqual(prop["kind"], "update_item")
+        self.assertEqual(prop["target_id"], "t-urgent")
+        self.assertEqual(prop["changes"]["deadline_at"]["to"], "2026-11-26T12:00:00+08:00")
+
+        # Nonexistent target returns graceful clarification without emitting a broken proposal
+        step1_miss = {
+            "tool": "propose_update",
+            "arguments": {"target_hint": "根本不存在的火星任务", "selector": "by_title", "action": "cancel"},
+        }
+        step2_miss = {"reply": "清单里没找到火星任务，能再说一下具体名称吗？"}
+        with patch("campus_agent.agenda_chat.chat_json", side_effect=[step1_miss, step2_miss]):
+            miss_res = process_post(
+                "/api/v3/chat",
+                {
+                    "mode": "model",
+                    "messages": [{"role": "user", "text": "把火星任务取消了"}],
+                    "snapshot": snap,
+                    "now": ROADSHOW_NOW,
+                },
+            )
+        self.assertNotIn("proposal", miss_res)
+
+    def test_chat_propose_state_handles_focus_window_and_low_energy_draft(self) -> None:
+        snap = _roadshow_snapshot()
+        step1_fw = {
+            "tool": "propose_state",
+            "arguments": {"state_kind": "focus_window", "weekend": {"start": "14:00", "end": "18:00"}},
+        }
+        step2_fw = {"reply": "可以把周末 14:00–18:00 设为你的常用专注时段，点下面按钮保存即可。"}
+        with patch("campus_agent.agenda_chat.chat_json", side_effect=[step1_fw, step2_fw]):
+            res_fw = process_post(
+                "/api/v3/chat",
+                {
+                    "mode": "model",
+                    "messages": [{"role": "user", "text": "我周末下午效率最高，把常用专注时段改一下"}],
+                    "snapshot": snap,
+                    "now": ROADSHOW_NOW,
+                },
+            )
+        self.assertEqual(res_fw["proposal"]["kind"], "focus_window")
+        self.assertEqual(res_fw["proposal"]["weekend"], {"start": "14:00", "end": "18:00"})
+
+        step1_low = {
+            "tool": "propose_state",
+            "arguments": {"state_kind": "low_energy", "title": "刚路演完脑子放空"},
+        }
+        step2_low = {"reply": "听起来刚路演完很消耗精力，点下方按钮我帮你按接下来两小时精力偏低重排看看。"}
+        with patch("campus_agent.agenda_chat.chat_json", side_effect=[step1_low, step2_low]):
+            res_low = process_post(
+                "/api/v3/chat",
+                {
+                    "mode": "model",
+                    "messages": [{"role": "user", "text": "刚路演完脑子彻底空了，学不动了"}],
+                    "snapshot": snap,
+                    "now": ROADSHOW_NOW,
+                },
+            )
+        self.assertEqual(res_low["proposal"]["kind"], "replan_draft")
+        self.assertEqual(res_low["proposal"]["draft"]["kind"], "state")
+        self.assertEqual(res_low["proposal"]["draft"]["state"]["level"], "low")
+
 
 if __name__ == "__main__":
     unittest.main()

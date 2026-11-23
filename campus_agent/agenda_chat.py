@@ -57,10 +57,15 @@ TOOL_SYSTEM = """你是司序，在研磨里帮大学生用最省事的自然语
 {"tool":"plan_activities","arguments":{"scope":"today|tomorrow|weekend|next_weekend|weekday|week|next","weekday_index":null,"weekday_next":false,"from":null,"to":null,"activities":[{"title":"活动名","minutes":240,"category":"study|club|leisure|rest|other","splittable":false,"min_block_minutes":60,"preferred":"weekend|morning|afternoon|evening|daytime|any"}],"reserve_rest_minutes":0}}
 
 工具 3：propose_items
-用途：当用户用自然语言要新增一项或多项日程、约定、截止任务或校园通知时（如“下周二下午三点前交大创PPT，大概三小时，顺便周五晚上和室友吃火锅”“帮我记下明天两点半答辩”），翻译成结构化草案供确定性引擎校验并生成一键确认卡。
+用途：当用户用自然语言要新增一项或多项日程、约定、点墨活动、截止任务或个人待办时（如“下周二下午三点前交大创PPT，大概三小时，顺便周五晚上和室友吃火锅”“帮我记下明天两点半答辩”“提醒我周六复习高数”），翻译成结构化草案供确定性引擎校验并生成一键确认卡。
 输出格式：
-{"tool":"propose_items","arguments":{"items":[{"kind":"event|task","title":"简明事项名","start_at":"YYYY-MM-DDTHH:MM:SS+08:00 或 null","end_at":"ISO 或 null","deadline_at":"ISO 或 null","earliest_start_at":"ISO 或 null","estimate_minutes":null,"location":null}]}}
-注意：event 表示固定到场/约定（填 start_at，没说结束就留 null，绝不瞎编结束时间）；task 表示要完成/截止事项（填 deadline_at，没说具体时刻但说了某天时填当天 23:59:00+08:00，说了上午/下午/晚上时段时可填 earliest_start_at 与 deadline_at）。所有相对日期严格以输入里的 now 和 now_weekday 为基准换算。
+{"tool":"propose_items","arguments":{"items":[{"kind":"temporary|appointment|deadline|personal","title":"简明事项名","start_at":"YYYY-MM-DDTHH:MM:SS+08:00 或 null","end_at":"ISO 或 null","deadline_at":"ISO 或 null","earliest_start_at":"ISO 或 null","estimate_minutes":null,"location":null}]}}
+四类严格区分：
+- temporary（点墨）：外部安排、到点必须到场的校园活动/讲座/考试/答辩/面试/路演/集体会议（填 start_at，没说结束就留 null，绝不瞎编结束时间）；
+- appointment（约定）：用户自己跟自己或朋友定下来的固定时段（如吃火锅、看电影、取快递、约自习，填 start_at 与可选 end_at）；
+- deadline（截止之事）：有外部或明确交付节点的任务（如交作业、交大创PPT、填报名表，填 deadline_at）；
+- personal（个人任务）：用户给自己立的弹性待办（如复习高数、背单词、洗衣服、买日用品，填 deadline_at，若指定某天做则同时填当天 00:00:00+08:00 到 23:59:00+08:00 或对应上午/下午/晚上时段）。
+所有相对日期严格以输入里的 now 和 now_weekday 为基准换算。
 
 工具 4：propose_update
 用途：当用户要修改、改期、延后、估时、标记完成或取消清单里已有的事项时（如“把最急的那个往后挪一天”“刚才那场讲座改到下周六晚上七点”“实验报告我写完了”“摄影社说明会取消了”）。
@@ -324,15 +329,30 @@ def _build_add_items_proposal(
     for entry in raw_items[:10]:
         if not isinstance(entry, dict):
             continue
-        kind = str(entry.get("kind") or "").strip().lower()
+        raw_kind = str(entry.get("kind") or "").strip().lower()
+        kind_map = {
+            "temporary": ("event", "temporary"),
+            "点墨": ("event", "temporary"),
+            "appointment": ("event", "appointment"),
+            "event": ("event", "appointment"),
+            "约定": ("event", "appointment"),
+            "deadline": ("task", "deadline"),
+            "task": ("task", "deadline"),
+            "截止": ("task", "deadline"),
+            "截止之事": ("task", "deadline"),
+            "personal": ("task", "personal"),
+            "个人任务": ("task", "personal"),
+        }
+        mapped = kind_map.get(raw_kind)
         title = str(entry.get("title") or "").strip()[:200]
-        if not title or kind not in {"event", "task"}:
+        if not title or mapped is None:
             continue
+        bucket, layer_kind = mapped
         location = str(entry.get("location") or "").strip()[:100] or None
         evidence = [{"field": "title", "origin": "source_text", "source_id": source["id"], "quote": user_text[:200]}]
-        notes = ["由司序语义理解生成草案，经用户确认记入"]
+        notes = (["个人任务"] if layer_kind == "personal" else []) + ["由司序语义理解生成草案，经用户确认记入"]
 
-        if kind == "event":
+        if bucket == "event":
             start_at = _parse_local_iso(entry.get("start_at"), zone)
             end_at = _parse_local_iso(entry.get("end_at"), zone)
             if start_at and end_at and _instant(end_at, "end_at") <= _instant(start_at, "start_at"):
@@ -344,7 +364,7 @@ def _build_add_items_proposal(
                 evidence.append({"field": "end_at", "origin": "source_text", "source_id": source["id"], "quote": user_text[:200]})
             ev = {
                 "id": _id("e"),
-                "kind": "appointment",
+                "kind": layer_kind,
                 "title": title,
                 "start_at": start_at,
                 "end_at": end_at,
@@ -357,6 +377,7 @@ def _build_add_items_proposal(
             new_events.append(ev)
             summary_items.append({
                 "kind": "event",
+                "layer": layer_kind,
                 "title": title,
                 "start_at": start_at,
                 "end_at": end_at,
@@ -392,6 +413,7 @@ def _build_add_items_proposal(
             new_tasks.append(tk)
             summary_items.append({
                 "kind": "task",
+                "layer": layer_kind,
                 "title": title,
                 "deadline_at": deadline_at,
                 "earliest_start_at": earliest,

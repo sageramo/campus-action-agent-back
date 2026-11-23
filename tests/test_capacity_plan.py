@@ -578,13 +578,26 @@ class AgendaChatToolsTests(unittest.TestCase):
             "arguments": {
                 "items": [
                     {
-                        "kind": "task",
+                        "kind": "deadline",
                         "title": "大创结题材料和PPT",
                         "deadline_at": "2026-11-26T15:00:00+08:00",
                         "estimate_minutes": 180,
                     },
                     {
-                        "kind": "event",
+                        "kind": "personal",
+                        "title": "复习高数",
+                        "earliest_start_at": "2026-11-28T00:00:00+08:00",
+                        "deadline_at": "2026-11-28T23:59:00+08:00",
+                        "estimate_minutes": 120,
+                    },
+                    {
+                        "kind": "temporary",
+                        "title": "永远的长征主题大课",
+                        "start_at": "2026-11-24T15:00:00+08:00",
+                        "location": "中传礼堂",
+                    },
+                    {
+                        "kind": "appointment",
                         "title": "和室友吃火锅",
                         "start_at": "2026-11-27T19:00:00+08:00",
                         "end_at": "2026-11-27T21:00:00+08:00",
@@ -593,13 +606,13 @@ class AgendaChatToolsTests(unittest.TestCase):
                 ]
             },
         }
-        step2 = {"reply": "已为你整理好 2 项草案：周四 15:00 前完成大创结题材料和PPT（3小时），周五 19:00–21:00 和室友吃火锅。点下方按钮确认即可记入清单。"}
+        step2 = {"reply": "已为你整理好 4 项草案，分别按点墨、约定、截止和个人任务归类。点下方按钮确认即可记入清单。"}
         with patch("campus_agent.agenda_chat.chat_json", side_effect=[step1, step2]) as model:
             res = process_post(
                 "/api/v3/chat",
                 {
                     "mode": "model",
-                    "messages": [{"role": "user", "text": "周四下午三点前得交大创结题材料和PPT，大概三小时，顺便周五晚上七点到九点和室友在北门火锅店吃火锅"}],
+                    "messages": [{"role": "user", "text": "周四三点前交大创PPT，周六复习高数，周二三点中传礼堂大课，周五晚七点吃火锅"}],
                     "snapshot": snap,
                     "now": ROADSHOW_NOW,
                 },
@@ -609,10 +622,13 @@ class AgendaChatToolsTests(unittest.TestCase):
         self.assertNotIn("高等数学", model.call_args_list[1].args[1])
         prop = res["proposal"]
         self.assertEqual(prop["kind"], "add_items")
-        self.assertEqual(len(prop["items"]), 2)
+        self.assertEqual([item["layer"] for item in prop["items"]], ["deadline", "personal", "temporary", "appointment"])
         self.assertIsNotNone(prop["impact"])
-        self.assertEqual(len(prop["preview_snapshot"]["events"]), len(snap["events"]) + 1)
-        self.assertEqual(len(prop["preview_snapshot"]["tasks"]), len(snap["tasks"]) + 1)
+        added_evs = prop["preview_snapshot"]["events"][len(snap["events"]):]
+        added_tks = prop["preview_snapshot"]["tasks"][len(snap["tasks"]):]
+        self.assertEqual([(e["title"], e["kind"]) for e in added_evs], [("永远的长征主题大课", "temporary"), ("和室友吃火锅", "appointment")])
+        self.assertNotIn("个人任务", added_tks[0]["notes"])
+        self.assertIn("个人任务", added_tks[1]["notes"])
         self.assertLess(prop["impact"]["free_delta_minutes"], 0)
 
     def test_chat_propose_update_resolves_most_urgent_and_shift_days_without_leaking_list(self) -> None:

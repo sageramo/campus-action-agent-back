@@ -19,6 +19,25 @@ from .time_utils import get_zone
 
 PERSONAL_NOTE = "个人任务"
 SPLIT = re.compile(r"[\n。；;！!？?]+")
+COMMA_SPLIT = re.compile(r"[，,]+")
+PERIOD_RE = re.compile(r"(清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间)")
+PERIOD_WINDOWS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int], str]] = {
+    "清晨": ((6, 0, 0), (9, 0, 0), "清晨"),
+    "早晨": ((6, 0, 0), (10, 0, 0), "早上"),
+    "早上": ((6, 0, 0), (10, 0, 0), "早上"),
+    "今早": ((6, 0, 0), (10, 0, 0), "早上"),
+    "明早": ((6, 0, 0), (10, 0, 0), "早上"),
+    "上午": ((8, 0, 0), (12, 0, 0), "上午"),
+    "中午": ((11, 30, 0), (14, 0, 0), "中午"),
+    "下午": ((13, 0, 0), (18, 0, 0), "下午"),
+    "傍晚": ((17, 0, 0), (20, 0, 0), "傍晚"),
+    "晚上": ((18, 0, 0), (23, 0, 0), "晚上"),
+    "晚间": ((18, 0, 0), (23, 0, 0), "晚上"),
+    "夜间": ((18, 0, 0), (23, 0, 0), "晚上"),
+    "今晚": ((18, 0, 0), (23, 0, 0), "晚上"),
+    "明晚": ((18, 0, 0), (23, 0, 0), "晚上"),
+}
+CLAUSE_LEAD = re.compile(r"^(?:然后|再|还有|另外|并且|以及|接着|随后)?\s*")
 MARKER = re.compile(r"提醒我|帮我记(?:住|一下)?|记得|别忘了|我(?:今天|明天|后天|今晚|明早|明晚|这周|本周|下周|(?:这|本|下个?)?周末)?(?:要|得|需要|想要?)|(?:今天|明天|后天|今晚|明早|明晚|(?:这|本|下个?)?周末)(?:要|得|需要)|待办[:：]?")
 RELATIVE = {"今天": 0, "今日": 0, "今晚": 0, "今早": 0, "明天": 1, "明早": 1, "明晚": 1, "后天": 2, "大后天": 3}
 WEEKDAYS = "一二三四五六日天"
@@ -37,7 +56,7 @@ DURATION = re.compile(
     rf"|(?P<minutes>{NUMBER})\s*分钟)", re.I,
 )
 RECURRING = re.compile(r"每(?:天|日|周|晚|早|个?星期|个月)|工作日|隔[天周]")
-GOING = re.compile(r"去|参加|开会|例会|组会|开.{0,12}会|见|上课|面试|赴约|取快递")
+GOING = re.compile(r"去|参加|开会|例会|组会|开.{0,12}会|见|上课|面试|赴约|取快递|彩排|排练|表演|演出|比赛")
 NOISE = re.compile(r"^(?:提醒我|帮我记(?:住|一下)?|记得|别忘了|待办|我(?:要|得|需要|想要?)?|要|得|需要|请|截止)+|[，,]?\s*(?:大概|大约|约|预计|用时)$")
 # A notice reads "11月20日19:00 学术讲座"; a note to oneself reads "明天下午3点去取快递" or "周五前交报告".
 NOTICEY = re.compile(r"【|】|通知|同学们|各位|各班|请于|请各|请在|报名方式|联系人")
@@ -110,21 +129,82 @@ def _title(sentence: str, spans: list[tuple[int, int]]) -> str:
             pieces.append(sentence[cursor:start])
         cursor = max(cursor, end)
     text = "".join([*pieces, sentence[cursor:]])
-    for _ in range(3):
+    for _ in range(4):
         text = NOISE.sub("", text.strip(" ，,、：:"))
-    text = re.sub(r"^(?:今天|明天|后天|今晚|这周|本周|下周|(?:下个?|本|这)?周末|上午|下午|晚上|在|把)+", "", text).strip(" ，,、：:")
+        text = re.sub(r"^(?:然后|接着|随后|今天|明天|后天|今晚|今早|明早|明晚|这周|本周|下周|(?:下个?|本|这)?周末|清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|在|把)+", "", text).strip(" ，,、：:")
     return text[:200]
 
 
-def personal_item(sentence: str, today: date, source_id: str, lone: bool = False) -> tuple[str, dict[str, Any]] | None:
+def _starts_timed_clause(clause: str) -> bool:
+    """True when a comma-separated clause introduces its own date, day-period, or clock."""
+    trimmed = CLAUSE_LEAD.sub("", clause.strip())
+    if not trimmed:
+        return False
+    if DATE.match(trimmed) or PERIOD_RE.match(trimmed) or MARKER.match(trimmed):
+        return True
+    # Avoid splitting on durations like "1小时30分钟"
+    if DURATION.match(trimmed):
+        return False
+    return CLOCK_RE.match(trimmed) is not None
+
+
+def _split_comma_clauses(sentence: str) -> list[str]:
+    matches = list(COMMA_SPLIT.finditer(sentence))
+    if not matches:
+        return [sentence]
+    # Slice exact character ranges so every clause remains a verbatim substring of `sentence` (for evidence checks).
+    bounds: list[tuple[int, int]] = []
+    cursor = 0
+    for m in matches:
+        seg = sentence[cursor:m.start()].strip()
+        if seg:
+            s = sentence.index(seg, cursor)
+            bounds.append((s, s + len(seg)))
+        cursor = m.end()
+    tail = sentence[cursor:].strip()
+    if tail:
+        s = sentence.index(tail, cursor)
+        bounds.append((s, s + len(tail)))
+    if len(bounds) <= 1:
+        return [sentence]
+    merged: list[tuple[int, int]] = [bounds[0]]
+    for s, e in bounds[1:]:
+        if _starts_timed_clause(sentence[s:e]):
+            merged.append((s, e))
+        else:
+            prev_s, _ = merged[-1]
+            merged[-1] = (prev_s, e)
+    return [sentence[s:e] for s, e in merged]
+
+
+def _item_day(item: dict[str, Any]) -> date | None:
+    for key in ("start_at", "earliest_start_at", "deadline_at"):
+        val = item.get(key)
+        if isinstance(val, str) and len(val) >= 10:
+            try:
+                return date.fromisoformat(val[:10])
+            except ValueError:
+                pass
+    return None
+
+
+def personal_item(
+    sentence: str,
+    today: date,
+    source_id: str,
+    lone: bool = False,
+    *,
+    inherited_day: date | None = None,
+) -> tuple[str, dict[str, Any]] | None:
     """('task' | 'event', item) for one personal sentence, or None if it is not one.
 
     lone: the whole input is this one short sentence, so a colloquial day ("明天", "周五") is enough.
+    inherited_day: date carried forward from an earlier comma-separated clause (e.g. "这周四上午要彩排，下午要表演").
     """
     explicit = MARKER.match(sentence)
     if not explicit and lone and RECURRING.match(sentence) and GOING.search(sentence):
         raise ValueError("固定课表或例会请在铺纸里添加。")
-    if not explicit and (NOTICEY.search(sentence) or not lone or not COLLOQUIAL.match(sentence)):
+    if not explicit and inherited_day is None and (NOTICEY.search(sentence) or not lone or not COLLOQUIAL.match(sentence)):
         return None
     if not explicit and re.search(r"吗$|呢$|[？?]$|怎么办|能不能|要不要|有没有|可不可以|是否|有空|好累|开心|难过|下雨|下雪", sentence):
         return None
@@ -140,7 +220,22 @@ def personal_item(sentence: str, today: date, source_id: str, lone: bool = False
     connector = RANGE_RE.fullmatch(clock_text[clocks[0].end():clocks[1].start()]) if len(clocks) == 2 else None
     if connector:
         spans.append((clocks[0].end(), clocks[1].start()))
-    end_of_time = max((match.end() for match in [*dates, *clocks]), default=0)
+
+    # Recognize standalone day-period words (上午/下午/晚上/中午/早上...) when no exact clock is given.
+    period_match = None
+    period_key: str | None = None
+    if not clocks:
+        period_match = PERIOD_RE.search(clock_text)
+        if period_match:
+            period_key = period_match.group(1)
+            spans.append(period_match.span())
+        elif len(dates) == 1 and dates[0]["rel"] in PERIOD_WINDOWS:
+            period_key = dates[0]["rel"]
+
+    end_of_time = max(
+        (match.end() for match in [*dates, *clocks, *([period_match] if period_match else [])]),
+        default=0,
+    )
     deadline_word = BEFORE.match(sentence, end_of_time) if end_of_time else None
     before = bool(deadline_word or "截止" in sentence)
     if deadline_word:
@@ -163,12 +258,13 @@ def personal_item(sentence: str, today: date, source_id: str, lone: bool = False
 
     is_event = not before and (connector is not None or (bool(clocks) and GOING.search(title)))
     start = end = None
+    day: date | None = None
     try:
         if len(dates) > 1 and (len(dates) > 2 or not connector or dates[1].end() > clocks[1].end()):
             raise ValueError("出现多个日期")
         if len(clocks) > 1 and not connector:
             raise ValueError("出现多个时刻")
-        day = _day(dates[0], today) if dates else None
+        day = _day(dates[0], today) if dates else inherited_day
         if clocks:
             relative = dates[0]["rel"] if dates else None
             period = {"今晚": "晚上", "明晚": "晚上", "明早": "早上", "今早": "早上"}.get(relative)
@@ -191,10 +287,19 @@ def personal_item(sentence: str, today: date, source_id: str, lone: bool = False
                  "location": None, "status": "active", "source_id": source_id, "evidence": evidence, "notes": notes}
         return "event", event
     deadline = end or start
-    if deadline is None and day:
-        deadline = _at(day, (23, 59, 0))
     earliest = None
-    if deadline and not before:
+    if deadline is None and day:
+        if period_key and period_key in PERIOD_WINDOWS:
+            p_start, p_end, p_label = PERIOD_WINDOWS[period_key]
+            deadline = _at(day, p_end)
+            if not before:
+                earliest = _at(day, p_start).isoformat()
+            notes.append(
+                f"按{p_label}时段（{p_start[0]:02d}:{p_start[1]:02d}–{p_end[0]:02d}:{p_end[1]:02d}）限定，可在笔墨修改具体时刻。"
+            )
+        else:
+            deadline = _at(day, (23, 59, 0))
+    if deadline and not before and earliest is None:
         if len(dates) == 1 and dates[0]["weekend"]:
             wk_start, _ = _weekend_range(dates[0]["weekend"], today)
             start_of_day = _at(wk_start, (0, 0, 0))
@@ -226,9 +331,25 @@ def split_personal(text: str, reference_date: str | None, source_id: str) -> tup
     if tail:
         start = text.index(tail, cursor)
         spans.append((start, start + len(tail), tail))
-    lone = len(spans) == 1 and len(spans[0][2]) <= 50
+    lone = len(spans) == 1 and len(spans[0][2]) <= 80
     kept: list[tuple[int, int, str, int]] = []
     for index, (start, end, sentence) in enumerate(spans):
+        sub_clauses = _split_comma_clauses(sentence)
+        if len(sub_clauses) > 1 and not NOTICEY.search(sentence):
+            first = personal_item(sub_clauses[0], today, source_id, lone)
+            if first is not None:
+                kind0, item0 = first
+                (events if kind0 == "event" else tasks).append(item0)
+                carried_day = _item_day(item0)
+                for sub in sub_clauses[1:]:
+                    sub_found = personal_item(sub, today, source_id, lone, inherited_day=carried_day)
+                    if sub_found is not None:
+                        sk, si = sub_found
+                        (events if sk == "event" else tasks).append(si)
+                        carried_day = _item_day(si) or carried_day
+                    else:
+                        kept.append((start, end, sub, index))
+                continue
         found = personal_item(sentence, today, source_id, lone)
         if found is None:
             kept.append((start, end, sentence, index))

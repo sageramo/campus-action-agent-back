@@ -131,3 +131,36 @@ class PersonalReminderTests(TestCase):
         events, tasks, rest = split_personal("周末我有没有时间参加社团活动", "2026-11-18", "s-q")
         self.assertEqual((events, tasks), ([], []))
         self.assertEqual(rest, "周末我有没有时间参加社团活动")
+
+    def test_day_periods_morning_afternoon_and_comma_split_inherit_day(self):
+        from campus_agent.layers import validate_snapshot_v3
+
+        # Exact user screenshot case: 2026-11-23 is Monday -> 这周四 is 2026-11-26
+        result = process_post("/api/v3/extract", {"text": "这周四上午要彩排，下午要表演", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual(result["events"], [])
+        self.assertEqual(len(result["tasks"]), 2)
+        t1, t2 = result["tasks"]
+        self.assertEqual((t1["title"], t1["earliest_start_at"], t1["deadline_at"]),
+                         ("彩排", "2026-11-26T08:00:00+08:00", "2026-11-26T12:00:00+08:00"))
+        self.assertEqual((t2["title"], t2["earliest_start_at"], t2["deadline_at"]),
+                         ("表演", "2026-11-26T13:00:00+08:00", "2026-11-26T18:00:00+08:00"))
+        # Evidence quotes must pass strict v3 validation
+        validate_snapshot_v3({
+            "schema_version": 3, "revision": 1, "timezone": "Asia/Shanghai", "reference_time": "2026-11-23T15:00:00+08:00",
+            "sources": [result["source"]], "daily_window": [{"start": "08:00", "end": "23:00"}] * 7,
+            "routines_confirmed": True, "routines": [], "free_adjustments": [],
+            "events": result["events"], "tasks": result["tasks"],
+        })
+
+        # Multi-period + mixed event/task + deadline-before-period + ASCII comma modifier
+        mixed = process_post("/api/v3/extract", {"text": "这周四上午要彩排，下午3点到5点正式表演", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(t["title"], t["earliest_start_at"], t["deadline_at"]) for t in mixed["tasks"]],
+                         [("彩排", "2026-11-26T08:00:00+08:00", "2026-11-26T12:00:00+08:00")])
+        self.assertEqual([(e["title"], e["start_at"], e["end_at"]) for e in mixed["events"]],
+                         [("正式表演", "2026-11-26T15:00:00+08:00", "2026-11-26T17:00:00+08:00")])
+
+        before_period = process_post("/api/v3/extract", {"text": "提醒我周五上午前交报告,大概1小时", "reference_date": "2026-11-23", "mode": "rules"})
+        (bp,) = before_period["tasks"]
+        self.assertEqual((bp["title"], bp["earliest_start_at"], bp["deadline_at"], bp["estimate_minutes"]),
+                         ("交报告", None, "2026-11-27T12:00:00+08:00", 60))
+        self.assertIn(bp["evidence"][0]["quote"], before_period["source"]["text"])

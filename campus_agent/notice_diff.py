@@ -14,7 +14,8 @@ from typing import Any
 
 from .candidates import validate_extraction_input
 from .dify_client import extract_notice
-from .layer_import import items_from_candidates, items_from_rules
+from .extractor import parse_notice_text
+from .layer_import import MOVED_TO, _is_bare_time_only, _iso, _source, items_from_candidates, items_from_rules
 from .layers import calendar_snapshot, validate_snapshot_v3
 from .personal import with_personal
 from .snapshot import _instant
@@ -26,7 +27,12 @@ FILLER_RE = re.compile(
 )
 PUNCT_RE = re.compile(r"[\s，,。；;：:！？!?（）()【】\[\]「」『』“”\"'—–\-~～·、]+")
 CANCEL_CUE_RE = re.compile(r"(?:取消|停办|作废|不再举行|不再举办|暂停举行|免交|无需提交|不用交)")
-UPDATE_CUE_RE = re.compile(r"(?:改为|改到|改期|调整(?:至|到|为)|延期(?:至|到)?|延后(?:至|到)?|顺延(?:至|到)?|变更(?:为)?|推迟(?:至|到)?|提前(?:至|到)?|原定)")
+UPDATE_CUE_RE = re.compile(
+    r"(?:改为|改到|改至|改期|调整(?:至|到|为)|延期(?:至|到)?|延后(?:至|到)?|顺延(?:至|到)?|"
+    r"变更(?:为)?|推迟(?:至|到)?|提前(?:至|到)?|原定|"
+    r"(?:消息|时间|日期|地点|通知)?(?:错了|写错了|发错了|弄错了|搞错了|说错了|记错了|填错了)|"
+    r"更正|勘误|应该是|其实是)"
+)
 MATCH_THRESHOLD = 0.45
 
 
@@ -129,6 +135,154 @@ def _detect_cancelled_existing(text: str, existing_events: list[dict], existing_
     return cancels
 
 
+def _parse_clock_str(value: str) -> tuple[int, int, int]:
+    parts = [int(p) for p in value.split(":")]
+    return parts[0], parts[1], parts[2] if len(parts) > 2 else 0
+
+
+def _latest_unambiguous_target(snapshot: dict, matched_ids: set[str]) -> tuple[str, dict] | None:
+    """Return the sole active item from the most recent non-timetable source, or None if ambiguous."""
+    for src in reversed(snapshot.get("sources", [])):
+        if src.get("kind") == "timetable":
+            continue
+        sid = src.get("id")
+        items = [
+            ("event", ev) for ev in snapshot.get("events", [])
+            if ev.get("status") == "active" and ev.get("source_id") == sid and ev["id"] not in matched_ids
+        ] + [
+            ("task", tk) for tk in snapshot.get("tasks", [])
+            if tk.get("status") == "active" and tk.get("source_id") == sid and tk["id"] not in matched_ids
+        ]
+        if items:
+            return items[0] if len(items) == 1 else None
+    all_active = [
+        ("event", ev) for ev in snapshot.get("events", [])
+        if ev.get("status") == "active" and ev["id"] not in matched_ids
+    ] + [
+        ("task", tk) for tk in snapshot.get("tasks", [])
+        if tk.get("status") == "active" and tk["id"] not in matched_ids
+    ]
+    return all_active[0] if len(all_active) == 1 else None
+
+
+def _detect_implicit_correction(
+    text: str,
+    reference_date: str | None,
+    timezone: str,
+    snapshot: dict,
+    matched_ids: set[str],
+    source_id: str,
+) -> dict[str, Any] | None:
+    """Match a short title-less correction ('消息错了，应该是11月28日（周六）') to the latest unambiguous item."""
+    if not UPDATE_CUE_RE.search(text):
+        return None
+    parsed = parse_notice_text(text, source="user input", reference_date=reference_date, timezone=timezone)
+    bare_time = _is_bare_time_only(text)
+    if not bare_time and not (not parsed.time_points and len(parsed.locations) == 1):
+        return None
+    picked = _latest_unambiguous_target(snapshot, matched_ids)
+    if picked is None:
+        return None
+    kind, target = picked
+    zone = get_zone(timezone)
+    changes: dict[str, dict[str, Any]] = {}
+    evidence: list[dict[str, Any]] = []
+
+    if len(parsed.time_points) == 1:
+        point = parsed.time_points[0]
+        if point.precision == "date":
+            new_day = date.fromisoformat(point.value)
+            if kind == "event" and target.get("start_at"):
+                old_start = _instant(target["start_at"], "start_at").astimezone(zone)
+                new_start = old_start.replace(year=new_day.year, month=new_day.month, day=new_day.day)
+                if new_start.isoformat() != target["start_at"]:
+                    changes["start_at"] = {"from": target["start_at"], "to": new_start.isoformat()}
+                    evidence.append({"field": "start_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+                if target.get("end_at"):
+                    old_end = _instant(target["end_at"], "end_at").astimezone(zone)
+                    new_end = new_start + (old_end - old_start)
+                    if new_end.isoformat() != target["end_at"]:
+                        changes["end_at"] = {"from": target["end_at"], "to": new_end.isoformat()}
+                        evidence.append({"field": "end_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+            elif kind == "task" and target.get("deadline_at"):
+                old_dl = _instant(target["deadline_at"], "deadline_at").astimezone(zone)
+                new_dl = old_dl.replace(year=new_day.year, month=new_day.month, day=new_day.day)
+                if new_dl.isoformat() != target["deadline_at"]:
+                    changes["deadline_at"] = {"from": target["deadline_at"], "to": new_dl.isoformat()}
+                    evidence.append({"field": "deadline_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+        elif point.precision == "time":
+            if kind == "event" and target.get("start_at"):
+                old_start = _instant(target["start_at"], "start_at").astimezone(zone)
+                sh, sm, ss = _parse_clock_str(point.value)
+                new_start = old_start.replace(hour=sh, minute=sm, second=ss, microsecond=0)
+                if new_start.isoformat() != target["start_at"]:
+                    changes["start_at"] = {"from": target["start_at"], "to": new_start.isoformat()}
+                    evidence.append({"field": "start_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+                if point.end_value:
+                    eh, em, es = _parse_clock_str(point.end_value)
+                    new_end = old_start.replace(hour=eh, minute=em, second=es, microsecond=0)
+                    if new_end <= new_start:
+                        new_end += timedelta(days=1)
+                    if new_end.isoformat() != target.get("end_at"):
+                        changes["end_at"] = {"from": target.get("end_at"), "to": new_end.isoformat()}
+                        evidence.append({"field": "end_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+                elif target.get("end_at"):
+                    old_end = _instant(target["end_at"], "end_at").astimezone(zone)
+                    new_end = new_start + (old_end - old_start)
+                    if new_end.isoformat() != target["end_at"]:
+                        changes["end_at"] = {"from": target["end_at"], "to": new_end.isoformat()}
+                        evidence.append({"field": "end_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+            elif kind == "task" and target.get("deadline_at"):
+                old_dl = _instant(target["deadline_at"], "deadline_at").astimezone(zone)
+                dh, dm, ds = _parse_clock_str(point.end_value or point.value)
+                new_dl = old_dl.replace(hour=dh, minute=dm, second=ds, microsecond=0)
+                if new_dl.isoformat() != target["deadline_at"]:
+                    changes["deadline_at"] = {"from": target["deadline_at"], "to": new_dl.isoformat()}
+                    evidence.append({"field": "deadline_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+        elif point.precision == "datetime":
+            new_start_iso = _iso(point.value)
+            new_end_iso = _iso(point.end_value)
+            if kind == "event" and new_start_iso:
+                if new_start_iso != target.get("start_at"):
+                    changes["start_at"] = {"from": target.get("start_at"), "to": new_start_iso}
+                    evidence.append({"field": "start_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+                if new_end_iso:
+                    if new_end_iso != target.get("end_at"):
+                        changes["end_at"] = {"from": target.get("end_at"), "to": new_end_iso}
+                        evidence.append({"field": "end_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+                elif target.get("start_at") and target.get("end_at"):
+                    old_start = _instant(target["start_at"], "start_at").astimezone(zone)
+                    old_end = _instant(target["end_at"], "end_at").astimezone(zone)
+                    new_end = _instant(new_start_iso, "start_at").astimezone(zone) + (old_end - old_start)
+                    if new_end.isoformat() != target["end_at"]:
+                        changes["end_at"] = {"from": target["end_at"], "to": new_end.isoformat()}
+                        evidence.append({"field": "end_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+            elif kind == "task" and (new_end_iso or new_start_iso):
+                new_dl_iso = new_end_iso or new_start_iso
+                if new_dl_iso != target.get("deadline_at"):
+                    changes["deadline_at"] = {"from": target.get("deadline_at"), "to": new_dl_iso}
+                    evidence.append({"field": "deadline_at", "origin": "source_text", "source_id": source_id, "quote": point.evidence})
+
+    if len(parsed.locations) == 1:
+        loc = MOVED_TO.sub("", parsed.locations[0]) or parsed.locations[0]
+        if loc != target.get("location"):
+            changes["location"] = {"from": target.get("location"), "to": loc}
+            evidence.append({"field": "location", "origin": "source_text", "source_id": source_id, "quote": loc})
+
+    if not changes:
+        return None
+    matched_ids.add(target["id"])
+    return {
+        "kind": kind,
+        "action": "update",
+        "target_id": target["id"],
+        "target_title": target["title"],
+        "incoming": {**target, **{field: diff["to"] for field, diff in changes.items()}, "evidence": evidence},
+        "confidence": 0.85,
+        "changes": changes,
+    }
+
+
 def diff_notice(payload: object) -> dict[str, Any]:
     """POST /api/v3/notice-diff: match revised/cancelled notice against v3 snapshot and preview recalc."""
     if not isinstance(payload, dict) or not isinstance(payload.get("snapshot"), dict):
@@ -136,14 +290,17 @@ def diff_notice(payload: object) -> dict[str, Any]:
     snapshot = payload["snapshot"]
     validate_snapshot_v3(snapshot)
     extract_req = {k: v for k, v in payload.items() if k in {"text", "reference_date", "timezone"}}
-    text, reference_date, _ = validate_extraction_input(extract_req)
+    text, reference_date, timezone = validate_extraction_input(extract_req)
     mode = payload.get("mode", "rules")
     if mode not in {"rules", "model"}:
         raise ValueError("mode 只能是 rules 或 model")
     date_range = payload.get("range") or _default_range(snapshot)
 
     if mode == "rules":
-        extracted = with_personal(text, reference_date, lambda rest: items_from_rules(rest, reference_date))
+        try:
+            extracted = with_personal(text, reference_date, lambda rest: items_from_rules(rest, reference_date))
+        except ValueError:
+            extracted = {"source": _source(text), "events": [], "tasks": [], "warnings": [], "mode": "rules"}
     else:
         extracted = with_personal(
             text,
@@ -212,6 +369,12 @@ def diff_notice(payload: object) -> dict[str, Any]:
                 "confidence": 0.0,
                 "changes": {},
             })
+
+    # 3b. Short title-less follow-up correction ("消息错了，应该是11月28日（周六）") targeting the latest unambiguous item.
+    if not any(op["action"] in {"update", "cancel"} for op in operations):
+        implicit = _detect_implicit_correction(text, reference_date, timezone, snapshot, matched_ids, extracted["source"]["id"])
+        if implicit is not None:
+            operations = [implicit]
 
     # 4. Build detached preview snapshot & compute before/after calendar impact
     preview = deepcopy(snapshot)

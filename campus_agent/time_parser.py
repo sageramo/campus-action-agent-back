@@ -190,7 +190,32 @@ def extract_time_candidates(
         dates = list(DATE_RE.finditer(clause))
         used_clocks: set[tuple[int, int]] = set()
         clause_candidates: list[CandidateTime] = []
+        absorbed_start: int | None = None
+        absorbed_weekday: int | None = None
         for index, match in enumerate(dates):
+            # "本周日（11月29日）": the parenthesized explicit date anchors the preceding relative weekday.
+            if (match["relative"] or match["week"]) and index + 1 < len(dates):
+                next_match = dates[index + 1]
+                between = clause[match.end():next_match.start()].strip()
+                after_next = clause[next_match.end():].lstrip()
+                if (
+                    not next_match["relative"]
+                    and not next_match["week"]
+                    and not next_match["bare_day"]
+                    and between in {"（", "("}
+                    and after_next.startswith(("）", ")"))
+                ):
+                    absorbed_start = match.start()
+                    absorbed_weekday = (
+                        "一二三四五六日".index(match["weekday"].replace("天", "日"))
+                        if match["week"]
+                        else None
+                    )
+                    continue
+            span_start = absorbed_start if absorbed_start is not None else match.start()
+            expected_weekday = absorbed_weekday
+            absorbed_start = None
+            absorbed_weekday = None
             note: list[str] = []
             try:
                 if match["relative"] or match["week"]:
@@ -223,6 +248,8 @@ def extract_time_candidates(
                     else:
                         note.append(f"原文未给年份，暂按 {current_year} 年解释，需确认。")
                     day = date(current_year, int(match["im"] or match["month"] or match["sm"]), int(match["id"] or match["day"] or match["sd"]))
+                if expected_weekday is not None and day.weekday() != expected_weekday:
+                    raise ValueError("日期与前面的星期不一致，请核对原通知")
                 annotation = WEEKDAY_ANNOTATION_RE.match(clause, match.end())
                 if annotation:
                     stated = "一二三四五六日".index(annotation['weekday'].replace('天', '日'))
@@ -237,8 +264,13 @@ def extract_time_candidates(
             boundary = dates[index + 1].start() if index + 1 < len(dates) else len(clause)
             clocks = list(CLOCK_RE.finditer(clause, match.end(), boundary))
             if not clocks:
-                label, confidence = _infer_time_type_in_context(text, clause, base, match.start(), match.end())
-                clause_candidates.append(CandidateTime(label, day.isoformat(), match.group(), confidence, precision="date", timezone=timezone, warnings=note + ["只有日期，尚不能确认具体截止时刻或全天占用。"], source_start=base + match.start(), source_end=base + match.end()))
+                date_end = annotation.end() if annotation else match.end()
+                if span_start < match.start():
+                    close_paren = re.match(r"\s*[）)]", clause[date_end:])
+                    if close_paren:
+                        date_end += close_paren.end()
+                label, confidence = _infer_time_type_in_context(text, clause, base, span_start, date_end)
+                clause_candidates.append(CandidateTime(label, day.isoformat(), clause[span_start:date_end], confidence, precision="date", timezone=timezone, warnings=note + ["只有日期，尚不能确认具体截止时刻或全天占用。"], source_start=base + span_start, source_end=base + date_end))
             else:
                 cursor = 0
                 while cursor < len(clocks):
@@ -258,10 +290,10 @@ def extract_time_candidates(
                             end_pos = end_clock.end()
                             if end_value <= value:
                                 raise ValueError("区间结束不晚于开始；跨午夜请写明次日或结束日期")
-                        label, confidence = _infer_time_type_in_context(text, clause, base, match.start(), end_pos)
-                        clause_candidates.append(CandidateTime(label, value, clause[match.start():end_pos], confidence, end_value=end_value, kind="interval" if end_value else "point", timezone=timezone, warnings=note.copy(), source_start=base + match.start(), source_end=base + end_pos))
+                        label, confidence = _infer_time_type_in_context(text, clause, base, span_start, end_pos)
+                        clause_candidates.append(CandidateTime(label, value, clause[span_start:end_pos], confidence, end_value=end_value, kind="interval" if end_value else "point", timezone=timezone, warnings=note.copy(), source_start=base + span_start, source_end=base + end_pos))
                     except (ValueError, KeyError, OverflowError) as exc:
-                        warnings.append(f"未采纳时间「{clause[match.start():end_clock.end() if connector else clock.end()]}」：{exc}")
+                        warnings.append(f"未采纳时间「{clause[span_start:end_clock.end() if connector else clock.end()]}」：{exc}")
                     cursor += 2 if connector else 1
 
         combined: list[CandidateTime] = []
@@ -314,4 +346,5 @@ def extract_time_candidates(
             item.kind = "recurring_unexpanded"
             item.warnings.append(recurring_note)
         warnings.extend(note for note in item.warnings if note not in warnings)
+    warnings[:] = list(dict.fromkeys(warnings))
     return candidates[:limit]

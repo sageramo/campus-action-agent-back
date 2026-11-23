@@ -130,6 +130,26 @@ class RulesImportTests(TestCase):
         self.assertEqual([(item['title'], item['start_at'], item['location']) for item in imported_mixed['events']],
                          [('参加学术分享', '2026-11-25T19:00:00+08:00', '48教A201')])
 
+    def test_parenthesized_date_after_relative_weekday_and_topic_line(self):
+        notice = (
+            '【家长心理讲座通知】各位老师：学校心理中心定于本周日晚举办线上心理讲座，具体安排如下：\n'
+            '⌚讲座时间：本周日（11月29日）19:00-20:30\n'
+            '📌讲座主题：远山有信，温言相伴——大学生家长的亲子沟通艺术\n'
+            '💻参与方式：#腾讯会议：784-711-232；密码：1129'
+        )
+        imported = items_from_rules(notice, None)
+        assemble(imported)
+        self.assertEqual(imported['tasks'], [])
+        self.assertEqual(
+            [(ev['title'], ev['start_at'], ev['end_at']) for ev in imported['events']],
+            [('远山有信，温言相伴——大学生家长的亲子沟通艺术', '2026-11-29T19:00:00+08:00', '2026-11-29T20:30:00+08:00')],
+        )
+        # Duplicate identical relative-date warnings are collapsed to one.
+        self.assertEqual(len(imported['warnings']), len(set(imported['warnings'])))
+        # A bare correction sentence without an existing target must not create a bogus "应该是（周六）" task.
+        with self.assertRaises(ValueError):
+            items_from_rules('消息错了，应该是11月28日（周六）', None)
+
 
 def candidate(kind, **fields):
     item = {'title': '事项', 'kind': kind, 'deadline_at': None, 'fixed_start_at': None, 'fixed_end_at': None, 'visit_windows': [],

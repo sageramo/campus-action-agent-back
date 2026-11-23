@@ -84,6 +84,50 @@ class NoticeDiffTests(unittest.TestCase):
         self.assertEqual(res["summary"]["updated"], 0)
         self.assertEqual(len(res["preview_snapshot"]["events"]), 2)
 
+    def test_short_followup_date_or_time_correction_updates_latest_single_item(self):
+        base = json.loads((ROOT / "examples/roadshow-photo-club.snapshot.json").read_text(encoding="utf-8"))
+        snap = deepcopy(base)
+        ext = items_from_rules(
+            "【家长心理讲座通知】\n⌚讲座时间：本周日（11月29日）19:00-20:30\n📌讲座主题：远山有信，温言相伴——大学生家长的亲子沟通艺术",
+            None,
+        )
+        snap["sources"].append(ext["source"])
+        snap["events"].extend(ext["events"])
+
+        res = process_post("/api/v3/notice-diff", {
+            "snapshot": snap,
+            "text": "消息错了，应该是11月28日（周六）",
+            "reference_date": None,
+            "range": {"from": "2026-11-23", "to": "2026-11-29"},
+        })
+        self.assertTrue(res["is_revision_notice"])
+        self.assertEqual(res["summary"]["updated"], 1)
+        self.assertEqual(res["summary"]["added"], 0)
+        ev_op = res["operations"][0]
+        self.assertEqual(ev_op["changes"]["start_at"], {"from": "2026-11-29T19:00:00+08:00", "to": "2026-11-28T19:00:00+08:00"})
+        self.assertEqual(ev_op["changes"]["end_at"], {"from": "2026-11-29T20:30:00+08:00", "to": "2026-11-28T20:30:00+08:00"})
+
+        res_clock = process_post("/api/v3/notice-diff", {
+            "snapshot": snap,
+            "text": "时间发错了，改到19:30-21:00",
+            "reference_date": None,
+            "range": {"from": "2026-11-23", "to": "2026-11-29"},
+        })
+        self.assertEqual(res_clock["summary"]["updated"], 1)
+        self.assertEqual(res_clock["operations"][0]["changes"]["start_at"]["to"], "2026-11-29T19:30:00+08:00")
+        self.assertEqual(res_clock["operations"][0]["changes"]["end_at"]["to"], "2026-11-29T21:00:00+08:00")
+
+        # Ambiguous latest source (1 event + 1 task) must NOT guess which item "消息错了" refers to.
+        ambiguous = _photo_club_after_first_notice()
+        res_amb = process_post("/api/v3/notice-diff", {
+            "snapshot": ambiguous,
+            "text": "消息错了，应该是11月28日（周六）",
+            "reference_date": "2026-11-25",
+            "range": {"from": "2026-11-23", "to": "2026-11-29"},
+        })
+        self.assertEqual(res_amb["summary"]["updated"], 0)
+        self.assertEqual(res_amb["summary"]["added"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

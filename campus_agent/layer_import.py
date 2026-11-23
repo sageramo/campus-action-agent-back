@@ -12,7 +12,7 @@ from typing import Any
 
 from .candidates import validate_extraction_input
 from .extractor import parse_notice_text
-from .time_parser import CLOCK_RE, DATE_RE
+from .time_parser import CLOCK_RE, DATE_RE, WEEKDAY_ANNOTATION_RE
 from .time_utils import parse_dt
 
 EVENT_LABELS = {"活动/比赛时间", "考试时间", "面试时间", "抽签/签到时间"}
@@ -35,12 +35,19 @@ VENUE_HINT_RE = re.compile(
     r"[一二三四五六七八九十\d]+教)"
 )
 NON_LOCATION_PAREN_RE = re.compile(r"待定|未定|暂定|参加|必到|自愿|选填|截止|提交|电子版|纸质版|PDF|含|约|周一|周二|周三|周四|周五|周六|周日|星期")
+DECORATIVE_PREFIX_RE = re.compile(r"^[\s⌚⏰📅📆🕒📌📍💻📢🔔👉•·▪▫▶►◆◇★☆]+")
+GENERIC_TIME_LABEL_RE = re.compile(r"^(?:讲座|活动|会议|课程|培训|比赛|考试|演出|宣讲|直播|答辩|面试)?时间$")
+TOPIC_LINE_RE = re.compile(
+    r"(?:^|\n)[\s⌚⏰📅📆🕒📌📍💻📢🔔👉•·▪▫▶►◆◇★☆]*(?:讲座|活动|会议|课程|培训|分享|宣讲)?主题[：:]\s*([^\n]{2,80})"
+)
 BARE_TIME_NOISE_RE = re.compile(
-    r"(?:大后天|后天|明天|明早|明晚|今天|今日|今晚|今早|"
+    r"(?:(?:消息|时间|日期|地点|通知)?(?:错了|写错了|发错了|弄错了|搞错了|说错了|记错了|填错了)|"
+    r"更正|勘误|应该是|其实是|改为|改到|改至|改期|调整(?:为|至|到)|延期(?:至|到)?|延后(?:至|到)?|"
+    r"大后天|后天|明天|明早|明晚|今天|今日|今晚|今早|"
     r"(?:下个?|本|这)?周末|(?:下个?|本|这)?(?:周|星期|礼拜)[一二三四五六日天]|"
     r"清晨|早晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|"
     r"(?:之|以)?前|以后|之后|左右|大概|大约|开始|结束|截止|到|至|"
-    r"[\s，,。；;：:！!？?\-—–~～/]+)"
+    r"[\s，,。；;：:！!？?（）()\-—–~～/]+)"
 )
 FIELD_MAP = {"title": "title", "deadline_at": "deadline_at", "fixed_start_at": "start_at", "fixed_end_at": "end_at",
              "location": "location", "materials": "materials"}
@@ -48,6 +55,7 @@ FIELD_MAP = {"title": "title", "deadline_at": "deadline_at", "fixed_start_at": "
 
 def _is_bare_time_only(text: str) -> bool:
     stripped = DATE_RE.sub(" ", text)
+    stripped = WEEKDAY_ANNOTATION_RE.sub(" ", stripped)
     stripped = CLOCK_RE.sub(" ", stripped)
     stripped = BARE_TIME_NOISE_RE.sub("", stripped)
     return not stripped.strip()
@@ -135,7 +143,7 @@ def _title_and_location(text: str, start: int, end: int, event: bool) -> tuple[s
     """'请于{时间}前提交课程报告' -> '提交课程报告'; '拟于{时间}在中传礼堂举办大课' -> ('大课', '中传礼堂')."""
     left = max((match.end() for match in CLAUSE_END.finditer(text, 0, start)), default=0)
     right_match = CLAUSE_END.search(text, end)
-    raw_before = text[left:start].strip()
+    raw_before = DECORATIVE_PREFIX_RE.sub("", text[left:start].strip())
     raw_after = text[end:right_match.start() if right_match else len(text)].strip()
     before = TRAILING_PREPOSITION.sub("", LEADING.sub("", raw_before)).rstrip("：: ")
     inline_location: str | None = None
@@ -156,7 +164,11 @@ def _title_and_location(text: str, start: int, end: int, event: bool) -> tuple[s
         return f"参加{before}", inline_location
     if event and not before:
         after = _clean_event_title(after, event)
-    title = f"{before}{after}".strip("：: ")
+    title = DECORATIVE_PREFIX_RE.sub("", f"{before}{after}".strip("：: "))
+    if event and GENERIC_TIME_LABEL_RE.fullmatch(title):
+        topic_match = TOPIC_LINE_RE.search(text)
+        if topic_match:
+            return topic_match.group(1).strip(), inline_location
     if len(title) >= 2:
         return title, inline_location
     return _adjacent_clause_title(text, start, end, event) or _sentence(text, start, end), inline_location

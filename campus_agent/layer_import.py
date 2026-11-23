@@ -143,6 +143,17 @@ def _title(text: str, start: int, end: int, event: bool) -> str:
     return _adjacent_clause_title(text, start, end, event) or _sentence(text, start, end)
 
 
+def _fallback_notice_title(text: str, guessed: str | None) -> str:
+    if guessed and guessed not in {"user input", "未命名通知"}:
+        return guessed[:200]
+    cleaned = re.sub(r"^(?:各位(?:同学|老师|好)?|同学们|大家好)[，,：:\s]*", "", text.strip())
+    notice_match = re.search(r"关于([^，,。；;\n]{4,46}?的通知)", cleaned)
+    if notice_match:
+        return f"关于{notice_match.group(1)}"
+    first_clause = re.split(r"[。；;\n]", cleaned)[0].strip(" ，,：:")
+    return (first_clause or text.strip())[:46]
+
+
 def items_from_rules(text: str, reference_date: str | None) -> dict[str, Any]:
     text, reference_date, timezone = validate_extraction_input({"text": text, "reference_date": reference_date})
     if _is_bare_time_only(text):
@@ -179,7 +190,7 @@ def items_from_rules(text: str, reference_date: str | None) -> dict[str, Any]:
         else:
             tasks.append(_task(source, title, end or start, evidence + [{"field": "deadline_at", **quote}], notes))
     if not events and not tasks:
-        tasks.append(_task(source, (parsed["task_name"] or text.strip())[:200], None,
+        tasks.append(_task(source, _fallback_notice_title(text, parsed["task_name"]), None,
                            [], ["没有找到可计算的时间，截止未定义；有截止时请补填。"]))
     return {"source": source, "events": events, "tasks": tasks, "warnings": parsed["warnings"], "mode": "rules"}
 

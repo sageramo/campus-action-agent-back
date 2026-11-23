@@ -188,3 +188,10 @@ class PersonalReminderTests(TestCase):
         for bare in ("下午五点", "中午到晚上五点"):
             with self.assertRaises(ValueError):
                 process_post("/api/v3/extract", {"text": bare, "reference_date": "2026-11-23", "mode": "rules"})
+
+        # Long single-line notice whose relative date lacks reference_date must never use literal "user input" as title
+        long_notice = "各位好，关于组织二级关工委赴中央礼品文物管理中心开展学习教育的通知，如有意愿参加，请于今天前联系孙剑仪老师并扫码填写个人报名信息。"
+        res_long = process_post("/api/v3/extract", {"text": long_notice, "reference_date": None, "mode": "rules"})
+        self.assertEqual(len(res_long["tasks"]), 1)
+        self.assertNotEqual(res_long["tasks"][0]["title"], "user input")
+        self.assertEqual(res_long["tasks"][0]["title"], "关于组织二级关工委赴中央礼品文物管理中心开展学习教育的通知")

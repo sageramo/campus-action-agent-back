@@ -107,6 +107,29 @@ class RulesImportTests(TestCase):
         quotes = [entry['quote'] for entry in imported['events'][0]['evidence'] if entry['field'] == 'location']
         self.assertEqual(quotes, ['学活305'])
 
+    def test_niyu_juban_inline_venue_becomes_event_not_deadline(self):
+        notice = (
+            '@所有人 为纪念中国工农红军长征胜利 90 周年，引导广大学生从伟大长征精神中汲取奋进力量，'
+            '坚定理想信念、厚植家国情怀，学校特邀江西于都“长征源”宣讲团，拟于 11 月 24 日（周二）15:00在中传礼堂举办“永远的长征”主题大课。\n'
+            '我院共分配30个名额，活动需提前15分钟到场签到，参加本次活动加校级德育20分，有意向同学请填写以下链接https://www.wjx.top/vm/eygYdZK.aspx'
+        )
+        imported = items_from_rules(notice, '2026-11-23')
+        assemble(imported)
+        self.assertEqual(imported['tasks'], [])
+        self.assertEqual(
+            [(item['title'], item['start_at'], item['end_at'], item['location']) for item in imported['events']],
+            [('“永远的长征”主题大课', '2026-11-24T15:00:00+08:00', None, '中传礼堂')],
+        )
+        self.assertTrue(any(ev['field'] == 'location' and ev['quote'] == '中传礼堂' for ev in imported['events'][0]['evidence']))
+
+        mixed = '请于2026年11月24日15:00前提交活动报名表，学术分享定于2026年11月25日19:00在48教A201召开。'
+        imported_mixed = items_from_rules(mixed, '2026-11-23')
+        assemble(imported_mixed)
+        self.assertEqual([(item['title'], item['deadline_at']) for item in imported_mixed['tasks']],
+                         [('提交活动报名表', '2026-11-24T15:00:00+08:00')])
+        self.assertEqual([(item['title'], item['start_at'], item['location']) for item in imported_mixed['events']],
+                         [('参加学术分享', '2026-11-25T19:00:00+08:00', '48教A201')])
+
 
 def candidate(kind, **fields):
     item = {'title': '事项', 'kind': kind, 'deadline_at': None, 'fixed_start_at': None, 'fixed_end_at': None, 'visit_windows': [],

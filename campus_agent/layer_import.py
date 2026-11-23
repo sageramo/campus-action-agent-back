@@ -20,9 +20,13 @@ WINDOW_LABELS = {"办理时间", "选课时间"}
 SENTENCE_END = re.compile(r"[。；;！？!?\n]")
 CLAUSE_END = re.compile(r"[，,。；;！？!?\n]")
 MOVED_TO = re.compile(r"^(?:改为|改至|改到|调整为|调整至|更改为|变更为|移至|迁至|换到|换至)\s*")
-LEADING = re.compile(r"^(?:请(?:于|在)?|于|在|(?:之|以)?前)+")
-EVENT_VERBS = {"举行", "进行", "召开", "开始", "举办"}
+LEADING = re.compile(r"^(?:请(?:于|在)?|(?:拟定?|定|将|计划|预计)(?:于|在)|于|在|(?:之|以)?前)+")
+TRAILING_PREPOSITION = re.compile(r"(?:(?:拟定?|定|将|计划|预计)?(?:于|在))$")
+EVENT_VERBS = {"举行", "进行", "召开", "开始", "举办", "开展"}
 LEADING_EVENT_VERB = re.compile(r"^(?:举行|举办|召开|开展)")
+INLINE_VENUE_EVENT_RE = re.compile(
+    r"^在\s*([^，,。；;\n！？!?]{2,20}?)\s*(?:举行|举办|召开|开展|进行|开始)\s*(.*)$"
+)
 LOCATION_CLAUSE_PREFIX = re.compile(r"^(?:地点|地址|教室|会议室|办公室)[：:\s为在]")
 PAREN_LOCATION_RE = re.compile(r"[（(]\s*(?:(?:地点|地址)[：:\s]*)?([^（）()，,。；;\n！？!?]{2,24})\s*[）)]\s*$")
 VENUE_HINT_RE = re.compile(
@@ -127,20 +131,39 @@ def _adjacent_clause_title(text: str, start: int, end: int, event: bool) -> str 
     return None
 
 
-def _title(text: str, start: int, end: int, event: bool) -> str:
-    """'请于{时间}前提交课程报告' -> '提交课程报告'; '讲座于{时间}举行' -> '参加讲座'."""
+def _title_and_location(text: str, start: int, end: int, event: bool) -> tuple[str, str | None]:
+    """'请于{时间}前提交课程报告' -> '提交课程报告'; '拟于{时间}在中传礼堂举办大课' -> ('大课', '中传礼堂')."""
     left = max((match.end() for match in CLAUSE_END.finditer(text, 0, start)), default=0)
     right_match = CLAUSE_END.search(text, end)
-    before = re.sub(r"(?:于|在)$", "", LEADING.sub("", text[left:start].strip())).rstrip("：: ")
-    after = LEADING.sub("", text[end:right_match.start() if right_match else len(text)].strip()).lstrip("：: ")
+    raw_before = text[left:start].strip()
+    raw_after = text[end:right_match.start() if right_match else len(text)].strip()
+    before = TRAILING_PREPOSITION.sub("", LEADING.sub("", raw_before)).rstrip("：: ")
+    inline_location: str | None = None
+    after_source = raw_after
+    if event:
+        venue_match = INLINE_VENUE_EVENT_RE.match(raw_after)
+        if venue_match:
+            candidate_venue = venue_match.group(1).strip()
+            rest = venue_match.group(2).strip("：: ")
+            if VENUE_HINT_RE.search(candidate_venue) and not NON_LOCATION_PAREN_RE.search(candidate_venue):
+                inline_location = candidate_venue
+                if not rest and before:
+                    return f"参加{before}", inline_location
+                if rest:
+                    after_source = rest
+    after = LEADING.sub("", after_source).lstrip("：: ")
     if event and after in EVENT_VERBS and before:
-        return f"参加{before}"
+        return f"参加{before}", inline_location
     if event and not before:
         after = _clean_event_title(after, event)
     title = f"{before}{after}".strip("：: ")
     if len(title) >= 2:
-        return title
-    return _adjacent_clause_title(text, start, end, event) or _sentence(text, start, end)
+        return title, inline_location
+    return _adjacent_clause_title(text, start, end, event) or _sentence(text, start, end), inline_location
+
+
+def _title(text: str, start: int, end: int, event: bool) -> str:
+    return _title_and_location(text, start, end, event)[0]
 
 
 def _fallback_notice_title(text: str, guessed: str | None) -> str:
@@ -167,9 +190,9 @@ def items_from_rules(text: str, reference_date: str | None) -> dict[str, Any]:
         notes = list(point["warnings"])
         start, end = _iso(point["value"]) if point["precision"] == "datetime" else None, _iso(point["end_value"])
         label = point["time_type"]
-        title = _title(text, point["source_start"], point["source_end"], label in EVENT_LABELS)
+        title, inline_location = _title_and_location(text, point["source_start"], point["source_end"], label in EVENT_LABELS)
         title, paren_location = _extract_paren_location(title)
-        location = next((place for place in parsed["locations"] if place in sentence), None) or paren_location
+        location = next((place for place in parsed["locations"] if place in sentence), None) or paren_location or inline_location
         # A change notice says "地点改为学活305"; the place is what follows the verb (still a literal quote).
         if location:
             location = MOVED_TO.sub("", location) or location

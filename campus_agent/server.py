@@ -17,6 +17,7 @@ from .snapshot import calculate_snapshot
 from .advise import advise
 from .agenda_chat import agenda_chat
 from .calibration import calibrate_capacity
+from .capacity_plan import plan_capacity
 from .end_estimate import estimate_end
 from .exact_solver import solve_snapshot
 from .group_coord import coordinate_group_slots, export_availability_mask
@@ -68,6 +69,8 @@ def process_post(path: str, payload: object) -> dict:
         return replan_confirm(payload)
     if path == "/api/v3/starter":
         return generate_five_minute_starter(payload)
+    if path == "/api/v3/capacity/plan":
+        return plan_capacity(payload)
     if path == "/api/v3/timetable":
         return recognize_timetable(payload)
     if path == "/api/v3/estimate-end":
@@ -136,11 +139,11 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "name": "司序·知所先后 API",
                     "message": "Backend is running. /api/v2/extract is a separately configured local model service.",
-                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/group/coordinate", "/api/v3/replan/parse-state", "/api/v3/replan/preview", "/api/v3/replan/confirm", "/api/v3/starter"],
+                    "endpoints": ["/api/health", "/api/summary", "/api/multitime", "/api/conflict-cases", "/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/group/coordinate", "/api/v3/replan/parse-state", "/api/v3/replan/preview", "/api/v3/replan/confirm", "/api/v3/starter", "/api/v3/capacity/plan"],
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": __version__, "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1", "exact_solver_v1", "notice_diff_v1", "capacity_calibration_v1", "privacy_group_coord_v1", "separate_clock_now_v1", "focus_cognitive_scheduling_v1", "replan_loop_v1", "starter_material_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": __version__, "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1", "exact_solver_v1", "notice_diff_v1", "capacity_calibration_v1", "privacy_group_coord_v1", "separate_clock_now_v1", "focus_cognitive_scheduling_v1", "replan_loop_v1", "starter_material_v1", "capacity_plan_v1", "agenda_chat_tools_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -176,14 +179,14 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/group/coordinate", "/api/v3/replan/parse-state", "/api/v3/replan/preview", "/api/v3/replan/confirm", "/api/v3/starter"}:
+        if parsed.path not in {"/api/parse", "/api/conflicts", "/api/v2/calculate", "/api/v2/extract", "/api/v2/plan", "/api/v3/calendar", "/api/v3/extract", "/api/v3/timetable", "/api/v3/estimate-end", "/api/v3/advise", "/api/v3/chat", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/group/coordinate", "/api/v3/replan/parse-state", "/api/v3/replan/preview", "/api/v3/replan/confirm", "/api/v3/starter", "/api/v3/capacity/plan"}:
             return json_response(self, {"error": "unknown endpoint"}, 404)
         budget_acquired = False
         try:
             length = int(self.headers.get("Content-Length", "0"))
             if length < 0:
                 raise ValueError("Content-Length不得为负数")
-            snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan", "/api/v3/calendar", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/replan/parse-state", "/api/v3/replan/preview", "/api/v3/replan/confirm"}
+            snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan", "/api/v3/calendar", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/replan/parse-state", "/api/v3/replan/preview", "/api/v3/replan/confirm", "/api/v3/capacity/plan", "/api/v3/chat"}
             # Timetable screenshots arrive as base64 and can exceed 1MiB.
             limit = MAX_SNAPSHOT_BODY_BYTES if snapshot_request or parsed.path == "/api/v3/timetable" else MAX_BODY_BYTES
             if length > limit:

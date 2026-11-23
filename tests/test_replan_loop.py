@@ -51,10 +51,12 @@ class ReplanLoopTests(unittest.TestCase):
     def test_health_declares_129_replan_and_focus_capabilities(self) -> None:
         with urlopen(f"{self.base_url}/api/health", timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-        self.assertEqual(data["version"], "1.30")
+        self.assertEqual(data["version"], "1.31")
         self.assertIn("replan_loop_v1", data["capabilities"])
         self.assertIn("focus_cognitive_scheduling_v1", data["capabilities"])
         self.assertIn("starter_material_v1", data["capabilities"])
+        self.assertIn("capacity_plan_v1", data["capabilities"])
+        self.assertIn("agenda_chat_tools_v1", data["capabilities"])
 
     def test_fixture_1_success_replan_confirm_and_calendar_exact_block_match(self) -> None:
         fx = self.fixture_doc["fixtures"]["success_replan"]

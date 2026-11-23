@@ -21,11 +21,12 @@ DEFAULT_MINUTES = 60
 # (pattern, minutes, plain name) — the first match wins, so narrower kinds come first.
 RULES = [
     (re.compile(r"面试|面谈|约谈"), 30, "面试"),
-    (re.compile(r"答辩"), 120, "答辩"),
+    (re.compile(r"答辩|路演"), 120, "答辩或路演"),
     (re.compile(r"考试|测验|笔试|机考|期中|期末|四六级|测试"), 120, "考试"),
     (re.compile(r"选拔赛|初赛|复赛|决赛|比赛|竞赛|赛事"), 180, "比赛"),
     (re.compile(r"晚会|演出|音乐会|汇演|典礼|仪式|开幕式|闭幕式"), 150, "晚会或典礼"),
-    (re.compile(r"讲座|报告会|报告|论坛|沙龙|分享会|宣讲会|宣讲|讲堂"), 90, "讲座"),
+    (re.compile(r"讲座|报告会|报告|论坛|沙龙|分享会|宣讲会|宣讲|讲堂|大课"), 90, "讲座"),
+    (re.compile(r"彩排|排练"), 120, "彩排"),
     (re.compile(r"培训|工作坊|研讨|讨论会"), 120, "培训或研讨"),
     (re.compile(r"体检|献血"), 120, "体检"),
     (re.compile(r"志愿|值班|服务"), 180, "志愿或值班"),

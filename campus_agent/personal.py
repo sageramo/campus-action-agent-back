@@ -74,7 +74,10 @@ DATE = re.compile(r"(?P<rel>大后天|后天|明天|明早|明晚|今天|今日|
                   r"|(?<!\d)(?P<iy>\d{4})-(?P<im>\d{1,2})-(?P<id>\d{1,2})(?!\d)"
                   r"|(?:(?:(?P<y>\d{4})年\s*)?(?P<m>\d{1,2})月(?P<d>\d{1,2})[日号])"
                   r"|(?<![\d年月])(?P<dd>\d{1,2})[号日](?![\d楼室馆门线房])")
-BEFORE = re.compile(r"\s*(?:(?:之|以)?前(?!端|台|往|进|期|几|提(?![交供出醒报]))|截止|为止)")
+BEFORE = re.compile(
+    r"\s*(?:(?:之|以)?前(?!端|台|往|进|期|几|提(?![交供出醒报]))|"
+    r"(?:之|以)?内(?!容|部|涵|地|外|存|核|嵌|置|向|衣|饰|科|脏)|截止|为止)"
+)
 NUMBER = rf"(?:\d+(?:\.\d+)?|[{CN}]{{1,3}})"
 DURATION = re.compile(
     rf"(?<![\d.点:：-])(?:半\s*(?:个\s*)?小时"
@@ -83,11 +86,19 @@ DURATION = re.compile(
     rf"|(?P<minutes>{NUMBER})\s*分钟)", re.I,
 )
 RECURRING = re.compile(r"每(?:天|日|周|晚|早|个?星期|个月)|工作日|隔[天周]")
-GOING = re.compile(r"去|参加|开会|例会|组会|开.{0,12}会|见|上课|面试|赴约|取快递|彩排|排练|表演|演出|比赛")
+GOING = re.compile(
+    r"去|参加|开会|例会|组会|开.{0,12}会|见|上课|面试|答辩|路演|赴约|取快递|"
+    r"彩排|排练|表演|演出|比赛|考试|测验|讲座|宣讲|汇报|培训|体检|值班|志愿|"
+    r"看电影|观影|吃饭|聚餐|约饭|打球|健身|集合|签到"
+)
 NOISE = re.compile(r"^(?:提醒我|帮我记(?:住|一下)?|记得|别忘了|待办|我(?:要|得|需要|想要?)?|要|得|需要|请|截止)+|[，,]?\s*(?:大概|大约|约|预计|用时)$")
 # A notice reads "11月20日19:00 学术讲座"; a note to oneself reads "明天下午3点去取快递" or "周五前交报告".
 NOTICEY = re.compile(r"【|】|通知|同学们|各位|各班|请于|请各|请在|报名方式|联系人")
-COLLOQUIAL = re.compile(r"(?:(?:下个?|本|这)?周末)|(?:(?:本|这)?周[一二三四五六日天])|大后天|后天|明天|明早|明晚|今天|今日|今晚|今早|(?:下个?)?(?:周|星期|礼拜)[一二三四五六日天]")
+COLLOQUIAL = re.compile(
+    r"(?:我\s*)?(?:(?:(?:下个?|本|这)?周末)|(?:(?:下个?|本|这)?(?:周|星期|礼拜)[一二三四五六日天])|"
+    r"大后天|后天|明天|明早|明晚|今天|今日|今晚|今早)|"
+    r"我\s*(?:\d{1,2}月\d{1,2}[日号]|\d{1,2}[号日])"
+)
 
 
 def _id(prefix: str) -> str:
@@ -233,7 +244,11 @@ def personal_item(
         raise ValueError("固定课表或例会请在铺纸里添加。")
     if not explicit and inherited_day is None and (NOTICEY.search(sentence) or not lone or not COLLOQUIAL.match(sentence)):
         return None
-    if not explicit and re.search(r"吗$|呢$|[？?]$|怎么办|能不能|要不要|有没有|可不可以|是否|有空|好累|开心|难过|下雨|下雪", sentence):
+    if not explicit and re.search(
+        r"吗$|呢$|[？?]$|怎么办|能不能|要不要|有没有|可不可以|是否|有空|多少空|剩多少|"
+        r"好累|开心|难过|下雨|下雪|(?:状态|精力|精神)(?:不|很差|差|一般|偏低|不足|不够|不错|很好|挺好|充沛)|不舒服|头[疼痛晕]",
+        sentence,
+    ):
         return None
     dates = list(DATE.finditer(sentence))
     durations = list(DURATION.finditer(sentence))

@@ -195,3 +195,35 @@ class PersonalReminderTests(TestCase):
         self.assertEqual(len(res_long["tasks"]), 1)
         self.assertNotEqual(res_long["tasks"][0]["title"], "user input")
         self.assertEqual(res_long["tasks"][0]["title"], "关于组织二级关工委赴中央礼品文物管理中心开展学习教育的通知")
+
+    def test_leading_wo_zhinei_going_events_and_space_weekday_notices(self):
+        # Leading "我" must still route through personal parser without dropping clauses or falling back to untimed tasks
+        r_wo = process_post("/api/v3/extract", {"text": "我这周四上午要彩排，下午要表演", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual(
+            [(t["title"], t["earliest_start_at"], t["deadline_at"]) for t in r_wo["tasks"]],
+            [
+                ("彩排", "2026-11-26T08:00:00+08:00", "2026-11-26T12:00:00+08:00"),
+                ("表演", "2026-11-26T13:00:00+08:00", "2026-11-26T18:00:00+08:00"),
+            ],
+        )
+        r_wo_ev = process_post("/api/v3/extract", {"text": "我明天下午3点去取快递", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"]) for e in r_wo_ev["events"]], [("去取快递", "2026-11-24T15:00:00+08:00")])
+
+        # "今天之内" strips "之内" cleanly and marks deadline
+        r_in = process_post("/api/v3/extract", {"text": "提醒我今天之内完成实验报告", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(t["title"], t["deadline_at"]) for t in r_in["tasks"]], [("完成实验报告", "2026-11-23T23:59:00+08:00")])
+
+        # Common student show-up events become appointments, not deadlines
+        r_def = process_post("/api/v3/extract", {"text": "明天下午3点答辩", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"]) for e in r_def["events"]], [("答辩", "2026-11-24T15:00:00+08:00")])
+        r_mov = process_post("/api/v3/extract", {"text": "周五晚上7点看电影", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"]) for e in r_mov["events"]], [("看电影", "2026-11-27T19:00:00+08:00")])
+
+        # Space-separated weekday in notice + roadshow / 集合 event classification
+        r_sp = process_post("/api/v3/extract", {"text": "11月24日 周二 15:00在中传礼堂举办主题大课", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"], e["location"]) for e in r_sp["events"]], [("主题大课", "2026-11-24T15:00:00+08:00", "中传礼堂")])
+        self.assertFalse(any("相对时间" in w for w in r_sp["warnings"]))
+        r_rs = process_post("/api/v3/extract", {"text": "11月24日 14:15 智能体节路演", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"]) for e in r_rs["events"]], [("智能体节路演", "2026-11-24T14:15:00+08:00")])
+        r_jh = process_post("/api/v3/extract", {"text": "11月25日08:00在南操场集合", "reference_date": "2026-11-23", "mode": "rules"})
+        self.assertEqual([(e["title"], e["start_at"]) for e in r_jh["events"]], [("南操场集合", "2026-11-25T08:00:00+08:00")])

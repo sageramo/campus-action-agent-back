@@ -20,7 +20,10 @@ WINDOW_LABELS = {"办理时间", "选课时间"}
 SENTENCE_END = re.compile(r"[。；;！？!?\n]")
 CLAUSE_END = re.compile(r"[，,。；;！？!?\n]")
 MOVED_TO = re.compile(r"^(?:改为|改至|改到|调整为|调整至|更改为|变更为|移至|迁至|换到|换至)\s*")
-LEADING = re.compile(r"^(?:请(?:于|在)?|(?:拟定?|定|将|计划|预计)(?:于|在)|于|在|(?:之|以)?前)+")
+LEADING = re.compile(
+    r"^(?:请(?:于|在)?|(?:拟定?|定|将|计划|预计)(?:于|在)|于|在|"
+    r"(?:之|以)?前|(?:之|以)?内(?!容|部|涵|地|外|存|核|嵌|置|向|衣|饰|科|脏))+"
+)
 TRAILING_PREPOSITION = re.compile(r"(?:(?:拟定?|定|将|计划|预计)?(?:于|在))$")
 EVENT_VERBS = {"举行", "进行", "召开", "开始", "举办", "开展"}
 LEADING_EVENT_VERB = re.compile(r"^(?:举行|举办|召开|开展)")

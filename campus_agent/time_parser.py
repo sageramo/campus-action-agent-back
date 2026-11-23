@@ -34,7 +34,10 @@ DATE_RE = re.compile(
     r"|(?<!下)(?P<week>本周|这周|下周)(?P<weekday>[一二三四五六日天])"
     r"|(?<![\d年月./-])(?P<bare_day>0?[1-9]|[12]\d|3[01])\s*[日号](?!楼|室|馆|门|线|房|公寓|宿舍|\d+(?:室|楼|号|报告厅|教室|房|幢)))"
 )
-WEEKDAY_ANNOTATION_RE = re.compile(r"\s*[（(]\s*(?:周|星期)(?P<weekday>[一二三四五六日天])\s*[）)]")
+WEEKDAY_ANNOTATION_RE = re.compile(
+    r"(?:\s*[（(]\s*(?:周|星期)(?P<weekday>[一二三四五六日天])\s*[）)]"
+    r"|\s+(?:周|星期)(?P<bare_weekday>[一二三四五六日天])(?=$|[\s，,。；;！？!?\d]))"
+)
 CN = "零〇一二两三四五六七八九十"
 CLOCK_RE = re.compile(
     rf"(?<![\d:：])(?P<period>凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|晚间|夜间|(?<!最)早|(?<!最)晚)?\s*"
@@ -46,13 +49,14 @@ CLAUSE_RE = re.compile(r"[^，,。；;\n！？!?]+")
 SENTENCE_END_RE = re.compile(r"[。；;\n！？!?]")
 RANGE_RE = re.compile(r"\s*(?:(?P<next>次日|翌日)\s*)?(?:[-—–~～至到])\s*(?:(?P<next_after>次日|翌日)\s*)?$")
 TYPE_HINTS = [
-    ("抽签/签到时间", ["抽签", "签到", "入场", "到场"]),
+    ("抽签/签到时间", ["抽签", "签到", "入场", "到场", "检录", "集合", "报到"]),
     ("报名截止", ["报名"]),
-    ("材料提交", ["提交", "上传", "交到", "交申请表", "交材料"]),
+    ("材料提交", ["提交", "上传", "交到", "交申请表", "交材料", "填报", "申报", "缴费"]),
     ("活动/比赛时间", ["活动", "比赛", "讲座", "举行", "举办", "召开", "开展", "开讲",
-                   "典礼", "班会", "会议", "开幕", "大课", "宣讲", "论坛", "沙龙",
-                   "说明会", "宣讲会", "分享会", "交流会", "座谈会", "报告会",
-                   "晚会", "演出", "展演", "放映", "培训", "仪式", "选拔赛", "初赛", "复赛", "决赛"]),
+                   "典礼", "班会", "会议", "例会", "组会", "开幕", "大课", "宣讲", "论坛", "沙龙", "路演",
+                   "说明会", "宣讲会", "分享会", "交流会", "座谈会", "报告会", "研讨会", "动员会", "见面会", "读书会",
+                   "晚会", "演出", "展演", "音乐会", "放映", "观影", "彩排", "排练", "培训", "仪式",
+                   "志愿", "值班", "体检", "选拔赛", "初赛", "复赛", "决赛"]),
     ("考试时间", ["考试", "听力", "试音"]),
     ("选课时间", ["选课", "退课", "补选"]),
     ("面试时间", ["面试", "答辩", "汇报"]),
@@ -62,7 +66,7 @@ TYPE_HINTS = [
 ]
 
 
-DEADLINE_AFTER = re.compile(r"\s*(?:(?:之|以)?前|截止|为止)")
+DEADLINE_AFTER = re.compile(r"\s*(?:(?:之|以)?前|(?:之|以)?内(?!容|部|涵|地|外|存|核|嵌|置|向|衣|饰|科|脏)|截止|为止)")
 # Labels that can name a deadline; event labels cannot.
 DEADLINE_LABELS = {"报名截止", "材料提交", "选课时间", "办理时间", "退赛/撤回截止"}
 
@@ -252,7 +256,8 @@ def extract_time_candidates(
                     raise ValueError("日期与前面的星期不一致，请核对原通知")
                 annotation = WEEKDAY_ANNOTATION_RE.match(clause, match.end())
                 if annotation:
-                    stated = "一二三四五六日".index(annotation['weekday'].replace('天', '日'))
+                    wd_char = annotation["weekday"] or annotation["bare_weekday"]
+                    stated = "一二三四五六日".index(wd_char.replace("天", "日"))
                     if day.weekday() != stated:
                         raise ValueError("日期与括号中的星期不一致，请核对原通知")
             except (ValueError, OverflowError) as exc:

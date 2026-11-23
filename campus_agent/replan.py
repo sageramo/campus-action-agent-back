@@ -505,7 +505,8 @@ def generate_five_minute_starter(payload: object) -> dict[str, Any]:
         detected_kind or "",
         "打开「{title}」所需文件，把第 1 个可验证的小子步骤写下来并推进 5 分钟。",
     )
-    excerpts = _starter_excerpts(payload.get("material_text", ""))
+    raw_material = payload.get("material_text")
+    excerpts = _starter_excerpts("" if raw_material is None else raw_material)
     action = template.format(title=title)
     if excerpts:
         action = {

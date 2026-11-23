@@ -80,6 +80,71 @@ def _validate_messages(messages: object) -> list[dict[str, str]]:
     return messages
 
 
+CHINESE_SCOPE_MAP = {
+    "今天": "today",
+    "今日": "today",
+    "今晚": "today",
+    "明天": "tomorrow",
+    "明日": "tomorrow",
+    "周末": "weekend",
+    "本周末": "weekend",
+    "这周末": "weekend",
+    "下周末": "next_weekend",
+    "下个周末": "next_weekend",
+    "本周": "week",
+    "这周": "week",
+    "下周": "next",
+    "下个周": "next",
+}
+CHINESE_WEEKDAY_CHARS = "一二三四五六日天"
+CHINESE_CATEGORY_MAP = {
+    "学习": "study",
+    "作业": "study",
+    "复习": "study",
+    "社团": "club",
+    "学生组织": "club",
+    "娱乐": "leisure",
+    "放松": "leisure",
+    "玩": "leisure",
+    "休息": "rest",
+    "其他": "other",
+}
+CHINESE_PREFERRED_MAP = {
+    "周末": "weekend",
+    "晚上": "evening",
+    "晚间": "evening",
+    "夜晚": "evening",
+    "白天": "daytime",
+    "上午": "morning",
+    "早上": "morning",
+    "下午": "afternoon",
+    "任意": "any",
+    "不限": "any",
+}
+
+
+def _normalize_model_scope(raw_scope: object) -> tuple[object, int | None, bool | None]:
+    """Normalize Chinese scope strings an LLM might emit into canonical agenda.js scopes."""
+    if not isinstance(raw_scope, str):
+        return raw_scope, None, None
+    cleaned = raw_scope.strip()
+    if cleaned in CHINESE_SCOPE_MAP:
+        return CHINESE_SCOPE_MAP[cleaned], None, None
+    # Match 周一..周日 / 本周一..本周日 / 这周五 / 下周三 / 星期六 / 礼拜天
+    for prefix, is_next in (("下个", True), ("下", True), ("本", False), ("这", False), ("", False)):
+        if prefix and not cleaned.startswith(prefix):
+            continue
+        rest = cleaned[len(prefix):]
+        for marker in ("周", "星期", "礼拜"):
+            if rest.startswith(marker) and len(rest) == len(marker) + 1:
+                ch = rest[-1]
+                pos = CHINESE_WEEKDAY_CHARS.find(ch)
+                if pos >= 0:
+                    idx = 6 if pos == 7 else pos
+                    return "weekday", idx, is_next
+    return cleaned, None, None
+
+
 def _extract_scope_args(args: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     if args.get("from") is not None and args.get("to") is not None:
@@ -88,16 +153,21 @@ def _extract_scope_args(args: dict[str, Any]) -> dict[str, Any]:
     elif args.get("range") is not None:
         out["range"] = args["range"]
     else:
-        scope = args.get("scope") or "week"
-        out["scope"] = scope
+        raw_scope = args.get("scope") or "week"
+        norm_scope, inferred_idx, inferred_next = _normalize_model_scope(raw_scope)
+        out["scope"] = norm_scope
         if args.get("weekday_index") is not None:
-            out["weekday_index"] = args["weekday_index"]
+            out["weekday_index"] = _coerce_int(args["weekday_index"])
         elif args.get("weekdayIndex") is not None:
-            out["weekday_index"] = args["weekdayIndex"]
+            out["weekday_index"] = _coerce_int(args["weekdayIndex"])
+        elif inferred_idx is not None:
+            out["weekday_index"] = inferred_idx
         if args.get("weekday_next") is not None:
             out["weekday_next"] = bool(args["weekday_next"])
         elif args.get("weekdayNext") is not None:
             out["weekday_next"] = bool(args["weekdayNext"])
+        elif inferred_next is not None:
+            out["weekday_next"] = inferred_next
     return out
 
 
@@ -108,6 +178,16 @@ def _coerce_int(value: object) -> int | None:
         return value
     if isinstance(value, float) and value.is_integer():
         return int(value)
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            num = float(raw)
+        except ValueError:
+            return None
+        if num.is_integer():
+            return int(num)
     return None
 
 
@@ -127,14 +207,16 @@ def _sanitize_model_activities(raw: object) -> tuple[list[dict[str, Any]], list[
         if mins is None or mins <= 0:
             missing.append(title)
             continue
-        cat = str(item.get("category") or "other").strip().lower()
+        cat_raw = str(item.get("category") or "other").strip()
+        cat = CHINESE_CATEGORY_MAP.get(cat_raw, cat_raw.lower())
         if cat not in VALID_CATEGORIES:
             cat = "other"
         splittable = bool(item.get("splittable", False))
         min_blk = _coerce_int(item.get("min_block_minutes"))
         if min_blk is not None and (min_blk < 1 or min_blk > mins):
             min_blk = min(30, mins) if splittable else mins
-        pref = str(item.get("preferred") or "any").strip().lower()
+        pref_raw = str(item.get("preferred") or "any").strip()
+        pref = CHINESE_PREFERRED_MAP.get(pref_raw, pref_raw.lower())
         if pref not in VALID_PREFERRED:
             pref = "any"
         entry: dict[str, Any] = {

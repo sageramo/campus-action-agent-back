@@ -572,6 +572,7 @@ class ReplanLoopTests(unittest.TestCase):
             self.assertEqual(status, 400)
             self.assertIn("material_text", answer["error"])
         self.assertNotIn("material_brief", process_post(route, {"title": "复习", "material_text": " \n "}))
+        self.assertNotIn("material_brief", process_post(route, {"title": "复习", "material_text": None}))
         with patch("campus_agent.replan.chat_json", return_value={"action": "先把材料里的一句话读一遍。"}) as model:
             result = process_post(route, {"title": "复习", "material_text": "原" * 6000, "mode": "model"})
         expected = ["原" * 160]

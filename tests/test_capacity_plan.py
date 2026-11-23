@@ -525,6 +525,36 @@ class AgendaChatToolsTests(unittest.TestCase):
         self.assertEqual(res, {"reply": "听起来最近挺忙的，想先聊聊哪件事？"})
         self.assertNotIn("capacity", res)
 
+    def test_chat_normalizes_string_minutes_and_chinese_scope_from_model(self) -> None:
+        snap = _roadshow_snapshot()
+        step1 = {
+            "tool": "plan_activities",
+            "arguments": {
+                "scope": "本周末",
+                "activities": [
+                    {"title": "出去玩", "minutes": "240", "category": "娱乐", "preferred": "白天"},
+                    {"title": "社团活动", "minutes": "120", "category": "社团", "preferred": "晚上"},
+                ],
+                "reserve_rest_minutes": "60",
+            },
+        }
+        step2 = {"reply": "本周末排得开。"}
+        with patch("campus_agent.agenda_chat.chat_json", side_effect=[step1, step2]):
+            res = process_post(
+                "/api/v3/chat",
+                {
+                    "mode": "model",
+                    "messages": [{"role": "user", "text": "这周末出去玩4小时和社团2小时排得开吗"}],
+                    "snapshot": snap,
+                    "now": ROADSHOW_NOW,
+                },
+            )
+        self.assertEqual(res["capacity"]["tool"], "plan_activities")
+        self.assertEqual(res["capacity"]["scope"]["type"], "weekend")
+        self.assertEqual(res["capacity"]["requested_minutes"], 360)
+        self.assertEqual(res["capacity"]["reserve_rest_minutes"], 60)
+        self.assertTrue(res["capacity"]["feasible"])
+
     def test_chat_unknown_tool_raises_502(self) -> None:
         snap = _roadshow_snapshot()
         with patch("campus_agent.agenda_chat.chat_json", return_value={"tool": "delete_all_tasks", "arguments": {}}):

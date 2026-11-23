@@ -21,6 +21,7 @@ from .capacity_plan import plan_capacity
 from .end_estimate import estimate_end
 from .exact_solver import solve_snapshot
 from .group_coord import coordinate_group_slots, export_availability_mask
+from .image_extract import extract_notice_image
 from .layers import calendar_snapshot
 from .layer_import import items_from_candidates, items_from_rules
 from .notice_diff import diff_notice
@@ -80,15 +81,17 @@ def process_post(path: str, payload: object) -> dict:
     if path == "/api/v3/advise":
         return advise(payload)
     if path == "/api/v3/extract":
+        mode = payload.get("mode", "rules")
+        if mode == "image":
+            return extract_notice_image(payload)
         request = {key: value for key, value in payload.items() if key != "mode"}
         text, reference_date, _ = validate_extraction_input(request)
-        mode = payload.get("mode", "rules")
         if mode == "rules":
             return with_personal(text, reference_date, lambda rest: items_from_rules(rest, reference_date))
         if mode == "model":
             return with_personal(text, reference_date,
                                  lambda rest: items_from_candidates(extract_notice({**request, "text": rest}), rest, reference_date))
-        raise ValueError("mode 只能是 rules 或 model")
+        raise ValueError("mode 只能是 rules、model 或 image")
     if path == "/api/parse":
         return parse_notice_text(payload.get("text"), source="user input", reference_date=payload.get("reference_date"), timezone=timezone).to_dict()
     if path == "/api/conflicts":
@@ -143,7 +146,7 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
                 },
             )
         if path == "/api/health":
-            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": __version__, "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1", "exact_solver_v1", "notice_diff_v1", "capacity_calibration_v1", "privacy_group_coord_v1", "separate_clock_now_v1", "focus_cognitive_scheduling_v1", "replan_loop_v1", "starter_material_v1", "capacity_plan_v1", "agenda_chat_tools_v1", "agenda_chat_proposals_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
+            return json_response(self, {"ok": True, "name": "司序·知所先后 API", "version": __version__, "capabilities": ["notice_candidates", "snapshot_v2", "model_notice_candidates_v1", "partial_fixed_start_v1", "bounded_planning_v1", "source_condition_guards_v1", "reminder_consolidation_v1", "date_reminder_folding_v1", "pending_event_supplement_v1", "attendance_requirement_folding_v1", "time_layers_v3", "timetable_v3", "timetable_image_v3", "appointments_v3", "conflict_strategies_v1", "end_estimate_v1", "public_model_access_v1", "strategy_advice_v1", "personal_reminders_v1", "agenda_chat_v1", "agenda_time_validation_v1", "exact_solver_v1", "notice_diff_v1", "capacity_calibration_v1", "privacy_group_coord_v1", "separate_clock_now_v1", "focus_cognitive_scheduling_v1", "replan_loop_v1", "starter_material_v1", "capacity_plan_v1", "agenda_chat_tools_v1", "agenda_chat_proposals_v1", "notice_image_v1"], "model_extraction": extraction_service_status(), "timetable_model": deepseek_status(), "model_access": PUBLIC_MODEL_GATE.status()})
         if path == "/api/summary":
             return json_response(self, dataset_summary(DATA_DIR))
         if path == "/api/multitime":
@@ -187,10 +190,10 @@ class CampusAgentHandler(BaseHTTPRequestHandler):
             if length < 0:
                 raise ValueError("Content-Length不得为负数")
             snapshot_request = parsed.path in {"/api/v2/calculate", "/api/v2/plan", "/api/v3/calendar", "/api/v3/solve", "/api/v3/notice-diff", "/api/v3/calibrate-capacity", "/api/v3/group/export-mask", "/api/v3/replan/parse-state", "/api/v3/replan/preview", "/api/v3/replan/confirm", "/api/v3/capacity/plan", "/api/v3/chat"}
-            # Timetable screenshots arrive as base64 and can exceed 1MiB.
-            limit = MAX_SNAPSHOT_BODY_BYTES if snapshot_request or parsed.path == "/api/v3/timetable" else MAX_BODY_BYTES
+            # Timetable and notice/poster screenshots arrive as base64 and can exceed 1MiB.
+            limit = MAX_SNAPSHOT_BODY_BYTES if snapshot_request or parsed.path in {"/api/v3/timetable", "/api/v3/extract"} else MAX_BODY_BYTES
             if length > limit:
-                message = "快照超过15,000,000字节，请导出并拆分清单后重试" if snapshot_request else "请求体过大，请缩小图片或分批处理" if parsed.path == "/api/v3/timetable" else "请求体超过1MiB，请分批处理"
+                message = "快照超过15,000,000字节，请导出并拆分清单后重试" if snapshot_request else "请求体过大，请缩小图片或分批处理" if parsed.path in {"/api/v3/timetable", "/api/v3/extract"} else "请求体超过1MiB，请分批处理"
                 return json_response(self, {"error": message}, 413)
             raw = self.rfile.read(length).decode("utf-8") if length else "{}"
             def reject_constant(value: str) -> None:

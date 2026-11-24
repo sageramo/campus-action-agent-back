@@ -39,7 +39,7 @@
 | `DEEPSEEK_API_KEY` | DeepSeek 的 Key（课表识别、结束时间估计） |
 | `SIXU_MODEL_EXTRACTION_ENABLED` | 设为 `true` 才启用 Dify 模型提取 |
 | `DIFY_API_KEY` | Dify 应用的 API Key；`DIFY_API_BASE` 默认 `https://api.dify.ai/v1` |
-| `SIXU_MODEL_DAILY_LIMIT` / `SIXU_MODEL_IP_DAILY_LIMIT` | 每天全站 / 每个IP 的模型调用上限，默认 200 / 30 |
+| `SIXU_MODEL_DAILY_LIMIT` / `SIXU_MODEL_IP_DAILY_LIMIT` | 每天全站 / 每个IP 的模型调用上限，默认 1500 / 300 |
 | `SIXU_PUBLIC_ORIGINS` | 允许调用的页面地址，默认 `https://sageramo.github.io` |
 
 口令错 10 次锁定该 IP 一小时；超过每日上限返回 429，页面会提示改用规则提取。`/api/health` 的 `model_access.code_required` 表示是否已开启。

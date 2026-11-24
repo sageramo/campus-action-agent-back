@@ -105,9 +105,9 @@ class PublicModelGate:
             day = datetime.fromtimestamp(now, BEIJING).date()
             if day != self.day:
                 self.day, self.total, self.by_ip = day, 0, {}
-            if self.total >= _int_env("SIXU_MODEL_DAILY_LIMIT", 200):
+            if self.total >= _int_env("SIXU_MODEL_DAILY_LIMIT", 1500):
                 return ("今天全站的模型调用次数已用完，明天再试，或先用规则提取。", 429, "model_daily_limit")
-            if self.by_ip.get(client_ip, 0) >= _int_env("SIXU_MODEL_IP_DAILY_LIMIT", 30):
+            if self.by_ip.get(client_ip, 0) >= _int_env("SIXU_MODEL_IP_DAILY_LIMIT", 300):
                 return ("你今天的模型调用次数已用完，明天再试，或先用规则提取。", 429, "model_ip_daily_limit")
             self.total += 1
             self.by_ip[client_ip] = self.by_ip.get(client_ip, 0) + 1
